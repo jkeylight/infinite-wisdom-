@@ -12,6 +12,17 @@ from .epub import convert_epub
 from .pdf import convert_pdf
 
 
+def txt_filename_for(out_book_dir: Path) -> str:
+    """TXT filename = book folder name + .txt (e.g. 'Atomic Habits.txt').
+
+    Folder name comes from the source stem (disambiguated -epub/-pdf on
+    collision), so the TXT is identifiable when copied alone — unlike the
+    old generic 'content.txt'.
+    """
+    name = Path(out_book_dir).name or "book"
+    return f"{name}.txt"
+
+
 @dataclass
 class ConvertOptions:
     preset: str = "balanced"  # fast | balanced | best
@@ -19,7 +30,7 @@ class ConvertOptions:
     ocr: bool = False
     max_image_side: int = 1600
     figure_dpi: int = 200
-    include_header: bool = True  # prepend Title/Author header to content.txt
+    include_header: bool = True  # prepend Title/Author header to the TXT
 
     def __post_init__(self):
         if self.preset == "fast":
@@ -79,7 +90,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
 
 
 def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> ConvertResult:
-    """Convert one EPUB/PDF into out_book_dir/{content.txt, book.json, assets/}."""
+    """Convert one EPUB/PDF into out_book_dir/{<BookName>.txt, book.json, assets/}."""
     start = time.perf_counter()
     src = Path(src)
     try:
@@ -102,7 +113,7 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
             return ConvertResult(status="failed", source=str(src),
                                  error=f"Unsupported file type: {suffix or '(no extension)'}")
 
-        # Header: book name at the top of content.txt so the TXT is
+        # Header: book name at the top of the TXT so it is
         # identifiable when opened in Notepad / copied alone.
         # Format:
         #   <Title>
@@ -140,7 +151,8 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
                 m2["offset"] = approx
             markers.append(m2)
 
-        txt_path = out_book_dir / "content.txt"
+        txt_name = txt_filename_for(out_book_dir)
+        txt_path = out_book_dir / txt_name
         json_path = out_book_dir / "book.json"
         _atomic_write_text(txt_path, full_text)
 
@@ -150,6 +162,7 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
             "language": result.get("language", "en"),
             "source_file": src.name,
             "source_type": result["source_type"],
+            "text_file": txt_name,
             "cover": result["cover"]["file"] if result.get("cover") else "",
             "assets": result["assets"],
             "markers": markers,

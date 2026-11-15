@@ -22,8 +22,8 @@ def test_bulk_and_skip_existing(tmp_path: Path):
 
     results = run_bulk([src_dir], out, workers=2, layout="mirror")
     assert sum(1 for r in results if r.status == "ok") == 2
-    assert (out / "a" / "content.txt").exists()
-    assert (out / "b" / "content.txt").exists()
+    assert (out / "a" / "a.txt").exists()
+    assert (out / "b" / "b.txt").exists()
 
     # Second run: skip existing
     results2 = run_bulk([src_dir], out, workers=2, layout="mirror", skip_existing=True)

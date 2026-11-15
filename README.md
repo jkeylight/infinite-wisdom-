@@ -10,16 +10,17 @@ See [`PLAN.md`](PLAN.md) for the full plan (architecture, decisions, milestones)
 
 ```
 MyBook/
-  content.txt     ← pure plain text (opens anywhere)
-  book.json       ← title, author, cover, image positions, captions
+  MyBook.txt      ← pure plain text, named after the book (opens anywhere)
+  book.json       ← title, author, text_file, cover, image positions, captions
   assets/
     cover.jpg
     img_0001.webp
 ```
+Example: `Atomic Habits.epub` → `Converted\Atomic Habits\Atomic Habits.txt`. Same-name EPUB+PDF → `sample-epub\sample-epub.txt` + `sample-pdf\sample-pdf.txt` (no collision).
 
-TXT cannot hold images — `book.json` + `assets/` hold them, your reader renders them at the recorded offsets.
+TXT cannot hold images — `book.json` + `assets/` hold them, your reader renders them at the recorded offsets (use `book.json.text_file` to find the TXT).
 
-`content.txt` starts with the book name so it is identifiable in Notepad / when copied alone:
+The TXT also starts with the book name so it is identifiable in Notepad / when copied alone:
 ```
 Test Wisdom Book
 by Test Author

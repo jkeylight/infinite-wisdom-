@@ -72,8 +72,8 @@ def test_controller_converts_files(app, tmp_path: Path):
     assert done["finished"], "controller did not finish"
     assert len(results) == 2
     assert all(r.status == "ok" for r in results.values())
-    assert (out / "a" / "content.txt").exists()
-    assert (out / "b" / "content.txt").exists()
+    assert (out / "a" / "a.txt").exists()
+    assert (out / "b" / "b.txt").exists()
 
 
 def test_controller_pause_resume_cancel(app, tmp_path: Path):

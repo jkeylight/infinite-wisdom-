@@ -11,7 +11,7 @@ def test_epub_conversion(tmp_path: Path):
     out = tmp_path / "out" / "book"
     result = convert_file(src, out, ConvertOptions())
     assert result.status == "ok", result.error
-    txt = (out / "content.txt").read_text(encoding="utf-8")
+    txt = (out / "book.txt").read_text(encoding="utf-8")
     # Book name must be at the top of the TXT
     assert txt.startswith("Test Wisdom Book\nby Test Author\n\n---\n\n")
     assert "Chapter One" in txt
@@ -20,6 +20,8 @@ def test_epub_conversion(tmp_path: Path):
     assert "example" in txt  # dehyphenated (exam- + ple across <br/> may vary, check loosely)
     book = json.loads((out / "book.json").read_text(encoding="utf-8"))
     assert book["title"] == "Test Wisdom Book"
+    assert book["text_file"] == "book.txt"  # TXT named after the book, not content.txt
+    assert not (out / "content.txt").exists()
     assert book["cover"] == "assets/cover.jpg"
     assert (out / "assets" / "cover.jpg").exists()
     # Figure image extracted
@@ -34,7 +36,7 @@ def test_pdf_conversion(tmp_path: Path):
     out = tmp_path / "out" / "book"
     result = convert_file(src, out, ConvertOptions())
     assert result.status == "ok", result.error
-    txt = (out / "content.txt").read_text(encoding="utf-8")
+    txt = (out / "book.txt").read_text(encoding="utf-8")
     assert txt.startswith("Test Wisdom PDF\nby Test Author\n\n---\n\n")
     assert "Wisdom begins in wonder" in txt
     assert "knowing you know nothing" in txt
@@ -51,7 +53,7 @@ def test_text_only_skips_images(tmp_path: Path):
     assert result.status == "ok", result.error
     book = json.loads((out / "book.json").read_text(encoding="utf-8"))
     assert book["assets"] == []
-    assert "[[img:" not in (out / "content.txt").read_text(encoding="utf-8")
+    assert "[[img:" not in (out / "book.txt").read_text(encoding="utf-8")
 
 
 def test_no_header_option(tmp_path: Path):
@@ -60,7 +62,7 @@ def test_no_header_option(tmp_path: Path):
     out = tmp_path / "out" / "book"
     result = convert_file(src, out, ConvertOptions(include_header=False))
     assert result.status == "ok", result.error
-    txt = (out / "content.txt").read_text(encoding="utf-8")
+    txt = (out / "book.txt").read_text(encoding="utf-8")
     assert not txt.startswith("Test Wisdom Book")
     assert "Chapter One" in txt
 
@@ -70,7 +72,7 @@ def test_marker_offset_accounts_for_header(tmp_path: Path):
     make_epub(src)
     out = tmp_path / "out" / "book"
     convert_file(src, out, ConvertOptions())
-    txt = (out / "content.txt").read_text(encoding="utf-8")
+    txt = (out / "book.txt").read_text(encoding="utf-8")
     book = json.loads((out / "book.json").read_text(encoding="utf-8"))
     assert book["markers"], "expected at least one image marker"
     for m in book["markers"]:

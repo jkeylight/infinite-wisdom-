@@ -451,7 +451,17 @@ class MainWindow(QMainWindow):
         if not (0 <= row < len(self.model.rows)):
             return
         r = self.model.rows[row]
-        txt_path = Path(r["output"]) / "content.txt" if r.get("output") else None
+        txt_path = None
+        if r.get("output"):
+            from .engine import txt_filename_for
+            out_dir = Path(r["output"])
+            # New name first, legacy content.txt fallback
+            for cand in (out_dir / txt_filename_for(out_dir), out_dir / "content.txt"):
+                if cand.exists():
+                    txt_path = cand
+                    break
+            else:
+                txt_path = out_dir / txt_filename_for(out_dir)
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Preview — {r['name']}")
         dlg.resize(700, 500)

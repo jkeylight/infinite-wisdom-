@@ -65,7 +65,11 @@ def output_dir_for(src: Path, output_root: Path, layout: str, input_roots: list[
 
 
 def _is_already_converted(src: Path, out_dir: Path) -> bool:
-    txt = out_dir / "content.txt"
+    # New naming: <folder>.txt (e.g. Atomic Habits.txt). Legacy content.txt
+    # intentionally NOT counted, so old conversions re-run once and get the
+    # correctly-named TXT.
+    from .engine import txt_filename_for
+    txt = out_dir / txt_filename_for(out_dir)
     if not txt.exists():
         return False
     try:

@@ -19,7 +19,7 @@ from .bulk import run_bulk, summarize
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="converter-cli",
-        description="EPUB/PDF -> TXT bulk converter (sidecar: content.txt + book.json + assets/)",
+        description="EPUB/PDF -> TXT bulk converter (sidecar: <BookName>.txt + book.json + assets/)",
     )
     p.add_argument("inputs", nargs="+", help="Files and/or folders (.epub/.pdf). Folders are scanned recursively.")
     p.add_argument("-o", "--output", default="Converted", help="Output root folder (default: Converted)")
@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--layout", choices=["mirror", "flat", "same"], default="mirror",
                    help="mirror: preserve folder structure. flat: all in output root. same: next to source.")
     p.add_argument("--no-header", dest="include_header", action="store_false",
-                   help="Do not prepend Title/Author header to content.txt (default: header on).")
+                   help="Do not prepend Title/Author header to the TXT (default: header on).")
     p.add_argument("-v", "--verbose", action="store_true", help="Show per-file details.")
     return p
 
