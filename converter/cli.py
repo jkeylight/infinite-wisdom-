@@ -36,6 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Force re-convert everything.")
     p.add_argument("--layout", choices=["mirror", "flat", "same"], default="mirror",
                    help="mirror: preserve folder structure. flat: all in output root. same: next to source.")
+    p.add_argument("--no-header", dest="include_header", action="store_false",
+                   help="Do not prepend Title/Author header to content.txt (default: header on).")
     p.add_argument("-v", "--verbose", action="store_true", help="Show per-file details.")
     return p
 
@@ -67,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         ocr=args.ocr,
         skip_existing=args.skip_existing,
         layout=args.layout,
+        include_header=args.include_header,
         progress_cb=progress,
     )
 

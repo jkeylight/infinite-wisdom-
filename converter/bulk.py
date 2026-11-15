@@ -90,6 +90,7 @@ def run_bulk(
     ocr: bool = False,
     skip_existing: bool = True,
     layout: str = "mirror",
+    include_header: bool = True,
     progress_cb=None,  # callable(done, total, result)
 ) -> list[ConvertResult]:
     """Run bulk conversion. Returns list of results (order not guaranteed)."""
@@ -97,9 +98,10 @@ def run_bulk(
     input_roots = [Path(i) for i in inputs if Path(i).is_dir()]
     output_root = Path(output_root) if output_root else Path("Converted")
 
-    opts = ConvertOptions(preset=preset, text_only=text_only, ocr=ocr)
+    opts = ConvertOptions(preset=preset, text_only=text_only, ocr=ocr, include_header=include_header)
     opts_dict = {"preset": opts.preset, "text_only": opts.text_only, "ocr": opts.ocr,
-                 "max_image_side": opts.max_image_side, "figure_dpi": opts.figure_dpi}
+                 "max_image_side": opts.max_image_side, "figure_dpi": opts.figure_dpi,
+                 "include_header": opts.include_header}
 
     tasks: list[tuple[str, str, dict]] = []
     results: list[ConvertResult] = []

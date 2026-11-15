@@ -19,6 +19,7 @@ class ConvertOptions:
     ocr: bool = False
     max_image_side: int = 1600
     figure_dpi: int = 200
+    include_header: bool = True  # prepend Title/Author header to content.txt
 
     def __post_init__(self):
         if self.preset == "fast":
@@ -101,9 +102,47 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
             return ConvertResult(status="failed", source=str(src),
                                  error=f"Unsupported file type: {suffix or '(no extension)'}")
 
+        # Header: book name at the top of content.txt so the TXT is
+        # identifiable when opened in Notepad / copied alone.
+        # Format:
+        #   <Title>
+        #   by <Author>          (only if author known)
+        #
+        #   ---
+        #
+        #   <body...>
+        header = ""
+        if options.include_header:
+            title = (result.get("title") or src.stem or "Untitled").strip()
+            author = (result.get("author") or "").strip()
+            lines = [title]
+            if author:
+                lines.append(f"by {author}")
+            lines += ["", "---", ""]
+            header = "\n".join(lines) + "\n"
+        full_text = header + result["text"]
+        header_len = len(header)
+
+        # Shift image markers by header length, then snap each offset to the
+        # exact [[img:id]] position in the final TXT (converters track
+        # approximate running lengths; this makes offsets exact for the reader).
+        markers = []
+        search_from = 0
+        for m in result.get("markers", []):
+            m2 = dict(m)
+            approx = m2.get("offset", 0) + header_len
+            needle = f"[[img:{m2.get('id', '')}]]"
+            found = full_text.find(needle, search_from)
+            if found >= 0:
+                m2["offset"] = found
+                search_from = found + len(needle)
+            else:
+                m2["offset"] = approx
+            markers.append(m2)
+
         txt_path = out_book_dir / "content.txt"
         json_path = out_book_dir / "book.json"
-        _atomic_write_text(txt_path, result["text"])
+        _atomic_write_text(txt_path, full_text)
 
         book_json = {
             "title": result["title"],
@@ -113,7 +152,7 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
             "source_type": result["source_type"],
             "cover": result["cover"]["file"] if result.get("cover") else "",
             "assets": result["assets"],
-            "markers": result["markers"],
+            "markers": markers,
         }
         _atomic_write_json(json_path, book_json)
 

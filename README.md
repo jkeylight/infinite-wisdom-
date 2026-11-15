@@ -19,6 +19,18 @@ MyBook/
 
 TXT cannot hold images — `book.json` + `assets/` hold them, your reader renders them at the recorded offsets.
 
+`content.txt` starts with the book name so it is identifiable in Notepad / when copied alone:
+```
+Test Wisdom Book
+by Test Author
+
+---
+
+Chapter One
+...
+```
+Disable with CLI `--no-header` (GUI: header is always on in v1.0.1).
+
 ## Quick start
 
 ```bash
@@ -113,7 +125,7 @@ pip install pytest
 QT_QPA_PLATFORM=offscreen python -m pytest tests/ -v   # offscreen needed only on headless Linux; Windows needs no env var
 ```
 
-19 tests: normalize, EPUB/PDF conversion, bulk + skip-existing, GUI model + controller (convert, pause/resume/cancel), config persistence.
+21 tests: normalize, EPUB/PDF conversion (+ header, marker offsets), bulk + skip-existing, GUI model + controller (convert, pause/resume/cancel), config persistence.
 
 ## Status
 
