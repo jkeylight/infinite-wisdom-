@@ -314,13 +314,44 @@ Figure 1.2 — Diagram of the water cycle
 
 ---
 
-## 15. Open Decisions (Need Your Call Before Building)
+## 15. Decisions — Locked (My Calls)
 
-1. **Single-file vs sidecar?** Plan recommends sidecar (`content.txt` + `book.json` + `assets/`). Confirm?
-2. **OCR in v1 or later?** Adds size/complexity. Plan puts it in M2.
-3. **Target OS first?** Windows / macOS / Linux — affects packaging/signing order.
-4. **Reader stack?** Is your reader Python/Qt, Electron, Flutter, native? Affects how `book.json` offsets/markers are consumed.
-5. **Cover for TXT imports:** Auto-generate title card, or manual upload only?
+### 1. Single-file vs sidecar? → **SIDECAR. Locked.**
+`content.txt` + `book.json` + `assets/`. No debate.
+- Single-file markers (`[[img:...]]` in TXT) pollute the text, break in external editors, and make offsets fragile.
+- Sidecar keeps TXT pure/exportable and gives your reader full fidelity. JSON is authoritative; TXT markers are decorative only.
+- **Rule:** If a user copies just the `.txt` somewhere, it still reads perfectly. If they copy the whole folder, images work.
+
+### 2. OCR in v1 or later? → **LATER, as optional plugin. Not a v1 blocker.**
+- Ship v1 **without** OCR. Core EPUB + text-PDF conversion is 80% of real-world use.
+- OCR adds ~100 MB (Tesseract), language packs, slow processing, and a whole QA surface.
+- Design the pipeline so OCR is a drop-in page handler from day one (M2), but don't let it block M0/M1.
+- Build variants: `converter` (light, no OCR) and `converter-ocr` (full). Same engine, one flag.
+
+### 3. Target OS first? → **Windows first, macOS second, Linux third.**
+- Windows = largest desktop ebook audience in India + globally, cheapest to test/sign.
+- PySide6 code is cross-platform from the start — you pay almost nothing to keep macOS/Linux working.
+- Packaging order: Windows installer (M7) → macOS signed/notarized build → Linux AppImage/deb. Don't pay for Apple Developer signing until you have users asking for macOS.
+
+### 4. Reader stack? → **Converter in Python; reader format is stack-agnostic.**
+- Build the converter in **Python + PySide6** (best parsing libs, one language for converter + desktop reader if you go desktop).
+- But design `book.json` as plain JSON with character offsets — **any** reader (Python/Qt, Electron, Flutter, web, Android) can consume it. Don't couple the format to Qt.
+- If your reader is already built in another stack, don't rewrite it — just implement the JSON + offset loader (it's ~100 lines in any language).
+- **Call:** Don't let reader stack dictate converter stack. Converter = Python. Reader = whatever you already have.
+
+### 5. Cover for TXT imports? → **BOTH: auto-generate + manual override.**
+- Auto-generate a title card (title + author, colored background) on import so the shelf is never empty.
+- Always allow "Edit cover" → upload/replace. User override wins over generated.
+- Same rule for EPUB/PDF fallback: generated placeholder is last resort, never a dead end.
+
+### Summary table
+| # | Decision | Call |
+|---|---|---|
+| 1 | Format | Sidecar (`txt + json + assets/`) |
+| 2 | OCR | Optional plugin, M2 — not v1 blocker |
+| 3 | OS order | Windows → macOS → Linux |
+| 4 | Stack | Converter: Python/PySide6. Format: stack-agnostic JSON |
+| 5 | TXT covers | Auto-generate + manual override |
 
 ---
 
