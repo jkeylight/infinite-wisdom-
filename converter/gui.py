@@ -178,12 +178,29 @@ class QueueModel(QAbstractTableModel):
             idx = self.index(row, 3)
             self.dataChanged.emit(idx, idx)
 
-    def clear_finished(self) -> None:
+    def clear_finished(self) -> int:
+        """Clear Downloaded: remove ok + skipped rows from queue (disk untouched)."""
         keep = [r for r in self.rows if r["status"] not in ("ok", "skipped")]
-        if len(keep) != len(self.rows):
+        n = len(self.rows) - len(keep)
+        if n:
             self.beginResetModel()
             self.rows = keep
             self.endResetModel()
+        return n
+
+    # Alias with clearer name
+    def clear_downloaded(self) -> int:
+        return self.clear_finished()
+
+    def clear_failed(self) -> int:
+        """Clear Failed/Errors: remove failed rows from queue (disk untouched)."""
+        keep = [r for r in self.rows if r["status"] != "failed"]
+        n = len(self.rows) - len(keep)
+        if n:
+            self.beginResetModel()
+            self.rows = keep
+            self.endResetModel()
+        return n
 
     def clear_all(self) -> int:
         n = len(self.rows)
@@ -289,7 +306,7 @@ class MainWindow(QMainWindow):
         titles.addWidget(sub)
         header.addLayout(titles)
         header.addStretch()
-        badge = QLabel("  v1.1.0  ·  WINDOWS PERSONAL  ")
+        badge = QLabel("  v1.1.1  ·  WINDOWS PERSONAL  ")
         badge.setObjectName("badge")
         header.addWidget(badge)
         root.addLayout(header)
@@ -379,13 +396,16 @@ class MainWindow(QMainWindow):
         self.queue_title.setObjectName("cardTitle")
         qhead.addWidget(self.queue_title)
         qhead.addStretch()
-        self.clear_btn = QPushButton("Clear Finished")
+        self.clear_btn = QPushButton("✓ Clear Downloaded")
         self.clear_btn.setObjectName("ghostSmall")
+        self.clear_failed_btn = QPushButton("✗ Clear Failed")
+        self.clear_failed_btn.setObjectName("ghostSmall")
         self.clear_all_btn = QPushButton("🗑 Clear All")
         self.clear_all_btn.setObjectName("ghostSmall")
         self.clear_log_btn = QPushButton("Clear Log")
         self.clear_log_btn.setObjectName("ghostSmall")
         qhead.addWidget(self.clear_btn)
+        qhead.addWidget(self.clear_failed_btn)
         qhead.addWidget(self.clear_all_btn)
         qhead.addWidget(self.clear_log_btn)
         queue_layout.addLayout(qhead)
@@ -580,7 +600,8 @@ class MainWindow(QMainWindow):
         self.resume_btn.clicked.connect(self.controller.resume)
         self.cancel_btn.clicked.connect(self.controller.cancel)
         self.retry_btn.clicked.connect(self._retry_failed)
-        self.clear_btn.clicked.connect(self.model.clear_finished)
+        self.clear_btn.clicked.connect(self._clear_downloaded)
+        self.clear_failed_btn.clicked.connect(self._clear_failed)
         self.clear_all_btn.clicked.connect(self._clear_all)
         self.clear_log_btn.clicked.connect(self._clear_log)
         self.controller.file_finished.connect(self._on_file_finished)
@@ -657,6 +678,22 @@ class MainWindow(QMainWindow):
             self._log(f"Re-queueing {len(failed)} failed file(s).")
             self._start()
 
+    def _clear_downloaded(self) -> None:
+        if self.controller.state in ("running", "paused"):
+            self._log("Cannot clear while converting — Cancel first.")
+            return
+        n = self.model.clear_downloaded()
+        self.queue_title.setText(f"Queue  ·  {self.model.rowCount()} file(s)")
+        self._log(f"Cleared {n} downloaded file(s) from queue (files on disk untouched).")
+
+    def _clear_failed(self) -> None:
+        if self.controller.state in ("running", "paused"):
+            self._log("Cannot clear while converting — Cancel first.")
+            return
+        n = self.model.clear_failed()
+        self.queue_title.setText(f"Queue  ·  {self.model.rowCount()} file(s)")
+        self._log(f"Cleared {n} failed/error file(s) from queue (files on disk untouched).")
+
     def _clear_all(self) -> None:
         if self.controller.state in ("running", "paused"):
             self._log("Cannot clear while converting — Cancel first.")
@@ -666,7 +703,7 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.stats_label.setText("Queue cleared. Drop files/folders to begin.")
         self.queue_title.setText("Queue")
-        self._log(f"Cleared {n} file(s) from queue.")
+        self._log(f"Cleared {n} file(s) from queue (files on disk untouched).")
 
     def _clear_log(self) -> None:
         self._log_buffer.clear()

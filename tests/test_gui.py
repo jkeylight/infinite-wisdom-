@@ -94,6 +94,25 @@ def test_clear_all_and_clear_finished(app, tmp_path: Path):
     win.close()
 
 
+def test_clear_downloaded_and_failed_separate(app, tmp_path: Path):
+    win = MainWindow()
+    src = tmp_path / "a.epub"
+    make_epub(src)
+    src2 = tmp_path / "b.pdf"
+    make_pdf(src2)
+    win._add_paths([str(src), str(src2)])
+    win.model.rows[0]["status"] = "ok"
+    win.model.rows[1]["status"] = "failed"
+    win.clear_btn.click()  # Clear Downloaded
+    app.processEvents()
+    assert win.model.rowCount() == 1
+    assert win.model.rows[0]["status"] == "failed"
+    win.clear_failed_btn.click()  # Clear Failed
+    app.processEvents()
+    assert win.model.rowCount() == 0
+    win.close()
+
+
 def test_controller_pause_resume_cancel(app, tmp_path: Path):
     src = tmp_path / "a.epub"
     make_epub(src)
