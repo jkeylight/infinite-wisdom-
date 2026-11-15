@@ -1,27 +1,27 @@
-"""Infinite Wisdom Converter — Windows GUI (M6).
+"""Infinite Wisdom Converter — Windows GUI (M6, redesigned).
 
-Bulk-first, no-lag design:
-- QTableView + QAbstractTableModel (virtualized: only visible rows render)
-- All conversion in BulkController background thread + ProcessPool workers
-- GUI thread only draws; log/stats throttled via QTimer
-- Pause stops submitting new files; in-flight files finish cleanly
+Modern design system (SOTD-level polish):
+- Deep ink background, warm-white text, champagne-gold accent
+- Card-based layout, generous spacing, rounded corners
+- Status pills (custom delegate), gradient primary button, slim progress
+- Virtualized queue (QTableView), throttled log/stats — GUI never lags
 
-Run:  python -m converter.gui   (or Converter.exe in the portable build)
+Run:  python -m converter.gui   (or Converter.exe / run.bat)
 CLI twin (same engine):  python -m converter <folder> -o <output>
 """
 from __future__ import annotations
 
 import os
 import sys
-import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QAbstractTableModel, QModelIndex
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Qt, QTimer, QAbstractTableModel, QModelIndex, QRectF
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPainter, QColor, QFont, QPen
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton,
-    QSlider, QTableView, QVBoxLayout, QWidget, QDialog, QDialogButtonBox,
+    QSlider, QStyledItemDelegate, QStyle, QTableView, QVBoxLayout, QWidget, QDialog,
+    QDialogButtonBox, QStyleOptionViewItem,
 )
 
 from .bulk import output_dir_for, scan_inputs
@@ -29,8 +29,32 @@ from .config import load_config, save_config
 from .engine import ConvertOptions
 from .gui_bulk import BulkController
 
+# ---------------------------------------------------------------- design tokens
+BG = "#0f0e14"
+SURFACE = "#17161e"
+SURFACE2 = "#1e1d28"
+SURFACE3 = "#262433"
+BORDER = "#2e2b3d"
+BORDER_SOFT = "#232130"
+TEXT = "#f2ede3"
+TEXT_DIM = "#a8a29e"
+TEXT_FAINT = "#7a768a"
+GOLD = "#d6b48c"
+GOLD_DARK = "#b8935f"
+GOLD_LIGHT = "#ecd3a8"
+GREEN = "#8fc97f"
+RED = "#f08a8a"
+BLUE = "#8fb0f0"
+
 COLUMNS = ["File", "Type", "Size", "Status", "Images", "Time", "Output"]
 STATUS_ICON = {"queued": "○", "running": "◌", "ok": "✓", "failed": "✗", "skipped": "↷"}
+STATUS_COLORS = {
+    "queued": ("#2e2b3d", "#a8a29e"),
+    "running": ("#24304d", "#8fb0f0"),
+    "ok": ("#1e3324", "#8fc97f"),
+    "failed": ("#3d2222", "#f08a8a"),
+    "skipped": ("#2a2838", "#9a95a8"),
+}
 
 
 def _fmt_size(n: int) -> str:
@@ -39,6 +63,41 @@ def _fmt_size(n: int) -> str:
             return f"{n:.0f} {unit}"
         n /= 1024
     return f"{n:.1f} TB"
+
+
+class StatusDelegate(QStyledItemDelegate):
+    """Draws the Status column as a rounded pill badge; other columns default."""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        if index.column() != 3:
+            super().paint(painter, option, index)
+            return
+        text = index.data(Qt.DisplayRole) or ""
+        status = text.split()[-1] if text else "queued"
+        bg, fg = STATUS_COLORS.get(status, STATUS_COLORS["queued"])
+        painter.save()
+        # Row background (selected / hover handled by view palette)
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, QColor("#2e2b3d"))
+        else:
+            painter.fillRect(option.rect, QColor(SURFACE2) if index.row() % 2 == 0 else QColor("#1a1924"))
+        # Pill
+        r = QRectF(option.rect)
+        r.setX(r.x() + 10)
+        r.setWidth(min(r.width() - 20, 110))
+        r.setY(r.y() + 5)
+        r.setHeight(r.height() - 10)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QColor(bg))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(r, 9, 9)
+        painter.setPen(QColor(fg))
+        font = QFont(option.font)
+        font.setPointSize(9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(r, Qt.AlignCenter, text)
+        painter.restore()
 
 
 class QueueModel(QAbstractTableModel):
@@ -81,7 +140,6 @@ class QueueModel(QAbstractTableModel):
         return None
 
     def add_paths(self, paths: list[Path]) -> int:
-        """Add files (already scanned). Returns number added."""
         existing = {r["path"] for r in self.rows}
         added = 0
         for p in paths:
@@ -128,7 +186,6 @@ class QueueModel(QAbstractTableModel):
             self.endResetModel()
 
     def clear_all(self) -> int:
-        """Remove every row from the queue. Returns number removed."""
         n = len(self.rows)
         if n:
             self.beginResetModel()
@@ -140,7 +197,6 @@ class QueueModel(QAbstractTableModel):
         return [r["src"] for r in self.rows if r["status"] == "failed"]
 
     def queued_tasks(self, output_root: Path, layout: str, input_roots: list[Path]):
-        """Build (row, src, out_dir) tasks for queued rows, with collision-safe stems."""
         from collections import Counter
         queued = [(i, r) for i, r in enumerate(self.rows) if r["status"] in ("queued", "failed")]
         base_dirs = [output_dir_for(r["src"], output_root, layout, input_roots) for _, r in queued]
@@ -153,11 +209,17 @@ class QueueModel(QAbstractTableModel):
         return tasks
 
 
+def _card() -> QFrame:
+    f = QFrame()
+    f.setObjectName("card")
+    return f
+
+
 class MainWindow(QMainWindow):
     def __init__(self, config: dict | None = None):
         super().__init__()
         self.setWindowTitle("Infinite Wisdom — EPUB/PDF → TXT Converter")
-        self.resize(1100, 700)
+        self.resize(1220, 820)
         self.model = QueueModel(self)
         self.controller = BulkController(self)
         self._log_buffer: list[str] = []
@@ -197,115 +259,207 @@ class MainWindow(QMainWindow):
             "flat_txt": self.flat_chk.isChecked(),
         }
 
-    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+    def closeEvent(self, event) -> None:  # noqa: N802
         save_config(self._collect_config())
         super().closeEvent(event)
 
     # ---------- UI ----------
     def _build_ui(self):
         central = QWidget()
+        central.setObjectName("central")
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
+        root.setContentsMargins(22, 18, 22, 18)
+        root.setSpacing(14)
 
-        # Drop hint
-        self.drop_label = QLabel("Drop EPUB/PDF files or folders here — or use Add buttons below")
+        # --- Header ---
+        header = QHBoxLayout()
+        logo = QLabel("∞")
+        logo.setObjectName("logo")
+        logo.setAlignment(Qt.AlignCenter)
+        logo.setFixedSize(46, 46)
+        header.addWidget(logo)
+        titles = QVBoxLayout()
+        titles.setSpacing(0)
+        title = QLabel("Infinite Wisdom")
+        title.setObjectName("appTitle")
+        sub = QLabel("EPUB / PDF  →  TXT  ·  BULK CONVERTER")
+        sub.setObjectName("appSub")
+        titles.addWidget(title)
+        titles.addWidget(sub)
+        header.addLayout(titles)
+        header.addStretch()
+        badge = QLabel("  v1.1.0  ·  WINDOWS PERSONAL  ")
+        badge.setObjectName("badge")
+        header.addWidget(badge)
+        root.addLayout(header)
+
+        # --- Drop zone (hero card) ---
+        drop_card = _card()
+        drop_card.setObjectName("dropCard")
+        drop_layout = QVBoxLayout(drop_card)
+        drop_layout.setContentsMargins(20, 18, 20, 18)
+        self.drop_label = QLabel(
+            '<span style="font-size:26px; color:#d6b48c;">⬇</span><br/>'
+            '<span style="font-size:15px; font-weight:600; color:#f2ede3;">Drop EPUB / PDF books here</span><br/>'
+            '<span style="font-size:11px; color:#a8a29e;">files or folders — folders are scanned recursively · or use Add buttons below</span>'
+        )
         self.drop_label.setAlignment(Qt.AlignCenter)
-        self.drop_label.setMinimumHeight(56)
-        root.addWidget(self.drop_label)
+        drop_layout.addWidget(self.drop_label)
+        root.addWidget(drop_card)
 
-        # Options row 1: output + layout + preset
+        # --- Options card ---
+        opt_card = _card()
+        opt_layout = QVBoxLayout(opt_card)
+        opt_layout.setContentsMargins(18, 14, 18, 14)
+        opt_layout.setSpacing(10)
+
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Output:"))
+        row1.setSpacing(10)
+        row1.addWidget(QLabel("Output"), )
         self.output_edit = QLineEdit(str(Path.cwd() / "Converted"))
+        self.output_edit.setPlaceholderText("Output folder…")
         row1.addWidget(self.output_edit, 1)
         browse = QPushButton("Browse…")
+        browse.setObjectName("ghost")
         browse.clicked.connect(self._browse_output)
         row1.addWidget(browse)
-        row1.addWidget(QLabel("Layout:"))
+        row1.addWidget(QLabel("Layout"))
         self.layout_combo = QComboBox()
         self.layout_combo.addItems(["mirror", "flat", "same"])
         row1.addWidget(self.layout_combo)
-        row1.addWidget(QLabel("Preset:"))
+        row1.addWidget(QLabel("Preset"))
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(["fast", "balanced", "best"])
         self.preset_combo.setCurrentText("balanced")
         row1.addWidget(self.preset_combo)
-        root.addLayout(row1)
+        opt_layout.addLayout(row1)
 
-        # Options row 2: workers + toggles + add buttons
         row2 = QHBoxLayout()
-        add_files = QPushButton("Add Files…")
+        row2.setSpacing(10)
+        add_files = QPushButton("+  Add Files…")
+        add_files.setObjectName("ghost")
         add_files.clicked.connect(self._add_files_dialog)
         row2.addWidget(add_files)
-        add_folder = QPushButton("Add Folder…")
+        add_folder = QPushButton("+  Add Folder…")
+        add_folder.setObjectName("ghost")
         add_folder.clicked.connect(self._add_folder_dialog)
         row2.addWidget(add_folder)
-        row2.addWidget(QLabel("Workers:"))
+        row2.addWidget(QLabel("Workers"))
         self.workers_slider = QSlider(Qt.Horizontal)
         max_w = max(1, os.cpu_count() or 2)
         self.workers_slider.setRange(1, max_w)
         self.workers_slider.setValue(max(1, max_w - 1))
-        self.workers_slider.setFixedWidth(140)
+        self.workers_slider.setFixedWidth(150)
         row2.addWidget(self.workers_slider)
         self.workers_label = QLabel(str(self.workers_slider.value()))
+        self.workers_label.setObjectName("workersVal")
+        self.workers_label.setFixedWidth(22)
         row2.addWidget(self.workers_label)
         self.workers_slider.valueChanged.connect(lambda v: self.workers_label.setText(str(v)))
-        self.text_only_chk = QCheckBox("Text-only (fastest)")
+        self.text_only_chk = QCheckBox("Text-only")
         row2.addWidget(self.text_only_chk)
-        self.skip_chk = QCheckBox("Skip already converted")
+        self.skip_chk = QCheckBox("Skip converted")
         self.skip_chk.setChecked(True)
         row2.addWidget(self.skip_chk)
-        self.flat_chk = QCheckBox("Also copy TXT to output root (flat)")
+        self.flat_chk = QCheckBox("Flat TXT copy")
         row2.addWidget(self.flat_chk)
         row2.addStretch()
-        root.addLayout(row2)
+        opt_layout.addLayout(row2)
+        root.addWidget(opt_card)
 
-        # Queue table (virtualized)
+        # --- Queue card ---
+        queue_card = _card()
+        queue_layout = QVBoxLayout(queue_card)
+        queue_layout.setContentsMargins(0, 0, 0, 0)
+        queue_layout.setSpacing(0)
+        qhead = QHBoxLayout()
+        qhead.setContentsMargins(18, 12, 18, 10)
+        self.queue_title = QLabel("Queue")
+        self.queue_title.setObjectName("cardTitle")
+        qhead.addWidget(self.queue_title)
+        qhead.addStretch()
+        self.clear_btn = QPushButton("Clear Finished")
+        self.clear_btn.setObjectName("ghostSmall")
+        self.clear_all_btn = QPushButton("🗑 Clear All")
+        self.clear_all_btn.setObjectName("ghostSmall")
+        self.clear_log_btn = QPushButton("Clear Log")
+        self.clear_log_btn.setObjectName("ghostSmall")
+        qhead.addWidget(self.clear_btn)
+        qhead.addWidget(self.clear_all_btn)
+        qhead.addWidget(self.clear_log_btn)
+        queue_layout.addLayout(qhead)
+
         self.table = QTableView()
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.setEditTriggers(QTableView.NoEditTriggers)
         self.table.doubleClicked.connect(self._preview_row)
         self.table.horizontalHeader().setStretchLastSection(True)
-        root.addWidget(self.table, 3)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.setAlternatingRowColors(False)
+        self.table.setShowGrid(False)
+        self.table.setItemDelegate(StatusDelegate(self.table))
+        # Column widths: File wide, Output wide, others compact
+        widths = [260, 70, 80, 130, 70, 70, 320]
+        for i, w in enumerate(widths):
+            self.table.setColumnWidth(i, w)
+        queue_layout.addWidget(self.table, 3)
+        root.addWidget(queue_card, 3)
 
-        # Controls
+        # --- Controls ---
         ctrl = QHBoxLayout()
-        self.start_btn = QPushButton("▶ Start")
-        self.pause_btn = QPushButton("⏸ Pause")
-        self.resume_btn = QPushButton("▶ Resume")
-        self.cancel_btn = QPushButton("✕ Cancel")
-        self.retry_btn = QPushButton("↻ Retry Failed")
-        self.clear_btn = QPushButton("Clear Finished")
-        self.clear_all_btn = QPushButton("🗑 Clear All")
-        self.clear_log_btn = QPushButton("Clear Log")
+        ctrl.setSpacing(10)
+        self.start_btn = QPushButton("▶  Start Conversion")
+        self.start_btn.setObjectName("primary")
+        self.start_btn.setMinimumHeight(42)
+        self.pause_btn = QPushButton("⏸  Pause")
+        self.pause_btn.setObjectName("ghost")
+        self.resume_btn = QPushButton("▶  Resume")
+        self.resume_btn.setObjectName("ghost")
+        self.cancel_btn = QPushButton("✕  Cancel")
+        self.cancel_btn.setObjectName("danger")
+        self.retry_btn = QPushButton("↻  Retry Failed")
+        self.retry_btn.setObjectName("ghost")
         for b in (self.pause_btn, self.resume_btn, self.cancel_btn, self.retry_btn):
             b.setEnabled(False)
-        # Clear buttons stay enabled (they no-op safely on empty queue / while running)
         ctrl.addWidget(self.start_btn)
         ctrl.addWidget(self.pause_btn)
         ctrl.addWidget(self.resume_btn)
         ctrl.addWidget(self.cancel_btn)
         ctrl.addWidget(self.retry_btn)
-        ctrl.addWidget(self.clear_btn)
-        ctrl.addWidget(self.clear_all_btn)
-        ctrl.addWidget(self.clear_log_btn)
         ctrl.addStretch()
         root.addLayout(ctrl)
 
-        # Progress + stats
+        # --- Progress + stats ---
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
+        self.progress.setFixedHeight(10)
+        self.progress.setTextVisible(False)
         root.addWidget(self.progress)
-        self.stats_label = QLabel("Ready. Drop files/folders to begin.")
+        self.stats_label = QLabel("Ready — drop files or folders to begin.")
+        self.stats_label.setObjectName("stats")
         root.addWidget(self.stats_label)
 
-        # Log (throttled)
+        # --- Log card ---
+        log_card = _card()
+        log_layout = QVBoxLayout(log_card)
+        log_layout.setContentsMargins(18, 10, 18, 12)
+        log_layout.setSpacing(6)
+        log_head = QHBoxLayout()
+        log_title = QLabel("Log")
+        log_title.setObjectName("cardTitle")
+        log_head.addWidget(log_title)
+        log_head.addStretch()
+        log_layout.addLayout(log_head)
         self.log_edit = QPlainTextEdit()
         self.log_edit.setReadOnly(True)
         self.log_edit.setMaximumBlockCount(2000)
-        self.log_edit.setFixedHeight(110)
-        root.addWidget(self.log_edit, 1)
+        self.log_edit.setFixedHeight(105)
+        self.log_edit.setObjectName("log")
+        log_layout.addWidget(self.log_edit)
+        root.addWidget(log_card, 1)
 
         # Timers: log flush 200ms, stats 500ms — GUI never lags on bulk
         self._log_timer = QTimer(self)
@@ -318,24 +472,107 @@ class MainWindow(QMainWindow):
         self._stats_timer.start()
 
     def _apply_theme(self):
-        self.setStyleSheet("""
-            QMainWindow { background: #12111a; }
-            QLabel { color: #e8e2d5; }
-            QLineEdit, QComboBox, QPlainTextEdit { background: #1c1a26; color: #e8e2d5;
-                border: 1px solid #3a3648; border-radius: 6px; padding: 4px; }
-            QPushButton { background: #c9a86a; color: #12111a; border: none;
-                border-radius: 6px; padding: 6px 12px; font-weight: bold; }
-            QPushButton:disabled { background: #4a4658; color: #9a95a8; }
-            QPushButton:hover:!disabled { background: #dbbc85; }
-            QTableView { background: #1c1a26; color: #e8e2d5; gridline-color: #3a3648; }
-            QHeaderView::section { background: #262233; color: #c9a86a; padding: 4px; }
-            QProgressBar { background: #1c1a26; border: 1px solid #3a3648; border-radius: 6px;
-                text-align: center; color: #e8e2d5; }
-            QProgressBar::chunk { background: #c9a86a; border-radius: 5px; }
-            QCheckBox { color: #e8e2d5; }
+        self.setStyleSheet(f"""
+            QMainWindow {{ background: {BG}; }}
+            QWidget#central {{ background: {BG}; }}
+            QLabel {{ color: {TEXT}; font-family: "Segoe UI", sans-serif; }}
+            QLabel#logo {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {GOLD_LIGHT}, stop:1 {GOLD_DARK});
+                color: #17161e; font-size: 26px; font-weight: bold; border-radius: 23px;
+            }}
+            QLabel#appTitle {{ font-size: 21px; font-weight: 700; color: {TEXT}; }}
+            QLabel#appSub {{ font-size: 10px; color: {TEXT_FAINT}; font-weight: 600; }}
+            QLabel#badge {{
+                background: {SURFACE2}; color: {GOLD}; border: 1px solid {BORDER};
+                border-radius: 11px; padding: 5px 10px; font-size: 10px; font-weight: 700;
+            }}
+            QFrame#card {{
+                background: {SURFACE}; border: 1px solid {BORDER_SOFT}; border-radius: 14px;
+            }}
+            QFrame#dropCard {{
+                background: {SURFACE}; border: 1.5px dashed {GOLD_DARK}; border-radius: 14px;
+            }}
+            QLabel#cardTitle {{ font-size: 12px; font-weight: 700; color: {GOLD}; }}
+            QLabel#stats {{ font-size: 12px; color: {TEXT_DIM}; }}
+            QLabel#workersVal {{ font-size: 12px; font-weight: 700; color: {GOLD}; }}
+            QLineEdit, QComboBox {{
+                background: {SURFACE2}; color: {TEXT}; border: 1px solid {BORDER};
+                border-radius: 9px; padding: 7px 10px; font-size: 12px;
+            }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1px solid {GOLD_DARK}; }}
+            QComboBox::drop-down {{ border: none; width: 22px; }}
+            QComboBox QAbstractItemView {{ background: {SURFACE2}; color: {TEXT};
+                selection-background-color: {SURFACE3}; border: 1px solid {BORDER}; }}
+            QPushButton {{
+                border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 600;
+                font-family: "Segoe UI", sans-serif;
+            }}
+            QPushButton#primary {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {GOLD_LIGHT}, stop:1 {GOLD});
+                color: #17161e; border: none; font-size: 13px; font-weight: 800; padding: 10px 22px;
+            }}
+            QPushButton#primary:hover:!disabled {{ background: {GOLD_LIGHT}; }}
+            QPushButton#primary:disabled {{ background: {SURFACE3}; color: {TEXT_FAINT}; }}
+            QPushButton#ghost {{
+                background: {SURFACE2}; color: {TEXT}; border: 1px solid {BORDER};
+            }}
+            QPushButton#ghost:hover:!disabled {{ border: 1px solid {GOLD_DARK}; color: {GOLD_LIGHT}; }}
+            QPushButton#ghost:disabled {{ color: {TEXT_FAINT}; border: 1px solid {BORDER_SOFT}; }}
+            QPushButton#danger {{
+                background: transparent; color: {RED}; border: 1px solid #4a2e2e;
+            }}
+            QPushButton#danger:hover:!disabled {{ border: 1px solid {RED}; }}
+            QPushButton#danger:disabled {{ color: {TEXT_FAINT}; border: 1px solid {BORDER_SOFT}; }}
+            QPushButton#ghostSmall {{
+                background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER_SOFT};
+                padding: 5px 10px; font-size: 11px;
+            }}
+            QPushButton#ghostSmall:hover {{ color: {GOLD_LIGHT}; border: 1px solid {GOLD_DARK}; }}
+            QTableView {{
+                background: {SURFACE2}; color: {TEXT}; border: none; border-radius: 0 0 14px 14px;
+                font-size: 12px; outline: none;
+            }}
+            QTableView::item {{ border: none; padding: 4px 8px; }}
+            QTableView::item:selected {{ background: {SURFACE3}; color: {TEXT}; }}
+            QHeaderView::section {{
+                background: {SURFACE}; color: {TEXT_FAINT}; border: none;
+                border-bottom: 1px solid {BORDER_SOFT}; padding: 8px; font-size: 10px;
+                font-weight: 700; text-transform: uppercase;
+            }}
+            QProgressBar {{
+                background: {SURFACE2}; border: 1px solid {BORDER_SOFT}; border-radius: 5px;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {GOLD_DARK}, stop:1 {GOLD_LIGHT});
+                border-radius: 4px;
+            }}
+            QPlainTextEdit#log {{
+                background: #0c0b10; color: #b8b2a8; border: 1px solid {BORDER_SOFT};
+                border-radius: 9px; padding: 6px; font-family: "Cascadia Code", "Consolas", monospace;
+                font-size: 11px;
+            }}
+            QCheckBox {{ color: {TEXT_DIM}; font-size: 12px; spacing: 6px; }}
+            QCheckBox::indicator {{
+                width: 16px; height: 16px; border-radius: 5px;
+                border: 1.5px solid {BORDER}; background: {SURFACE2};
+            }}
+            QCheckBox::indicator:checked {{
+                background: {GOLD}; border: 1.5px solid {GOLD};
+            }}
+            QSlider::groove:horizontal {{ height: 5px; background: {SURFACE3}; border-radius: 2px; }}
+            QSlider::handle:horizontal {{
+                width: 16px; height: 16px; margin: -5px 0; border-radius: 8px;
+                background: {GOLD}; border: 2px solid {BG};
+            }}
+            QSlider::sub-page:horizontal {{ background: {GOLD_DARK}; border-radius: 2px; }}
+            QScrollBar:vertical {{ background: {SURFACE}; width: 10px; border-radius: 5px; }}
+            QScrollBar::handle:vertical {{ background: {SURFACE3}; border-radius: 5px; min-height: 30px; }}
+            QScrollBar::handle:vertical:hover {{ background: {GOLD_DARK}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QScrollBar:horizontal {{ background: {SURFACE}; height: 10px; border-radius: 5px; }}
+            QScrollBar::handle:horizontal {{ background: {SURFACE3}; border-radius: 5px; min-width: 30px; }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
         """)
-        self.drop_label.setStyleSheet(
-            "border: 2px dashed #c9a86a; border-radius: 10px; color: #c9a86a; font-size: 14px;")
 
     def _connect(self):
         self.start_btn.clicked.connect(self._start)
@@ -352,17 +589,18 @@ class MainWindow(QMainWindow):
         self.controller.log_message.connect(self._log)
         self.controller.finished.connect(self._on_finished)
         self.controller.state_changed.connect(self._on_state)
+        self.model.rowsChanged = getattr(self.model, "rowsChanged", None)
 
     # ---------- Add files ----------
     def _add_paths(self, paths: list[str]) -> None:
         files = scan_inputs(paths)
-        # Track folder roots for mirror layout
         for p in paths:
             pp = Path(p)
             if pp.is_dir() and pp not in self._input_roots:
                 self._input_roots.append(pp)
         added = self.model.add_paths(files)
         self._log(f"Added {added} file(s) to queue (total {self.model.rowCount()}).")
+        self.queue_title.setText(f"Queue  ·  {self.model.rowCount()} file(s)")
         self._update_stats()
 
     def _add_files_dialog(self):
@@ -405,7 +643,7 @@ class MainWindow(QMainWindow):
         options = ConvertOptions(preset=self.preset_combo.currentText(),
                                  text_only=self.text_only_chk.isChecked(),
                                  flat_txt_dir=str(output_root) if self.flat_chk.isChecked() else "")
-        save_config(self._collect_config())  # persist on Start too (crash-safe)
+        save_config(self._collect_config())
         self.progress.setRange(0, len(tasks))
         self.progress.setValue(0)
         self._log(f"Starting {len(tasks)} file(s), workers={self.workers_slider.value()}, "
@@ -427,6 +665,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0)
         self.progress.setValue(0)
         self.stats_label.setText("Queue cleared. Drop files/folders to begin.")
+        self.queue_title.setText("Queue")
         self._log(f"Cleared {n} file(s) from queue.")
 
     def _clear_log(self) -> None:
@@ -490,7 +729,6 @@ class MainWindow(QMainWindow):
         if r.get("output"):
             from .engine import txt_filename_for
             out_dir = Path(r["output"])
-            # New name first, legacy content.txt fallback
             for cand in (out_dir / txt_filename_for(out_dir), out_dir / "content.txt"):
                 if cand.exists():
                     txt_path = cand
