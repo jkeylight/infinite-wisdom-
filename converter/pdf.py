@@ -7,7 +7,10 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-import pymupdf  # PyMuPDF
+try:
+    import pymupdf  # PyMuPDF >= 1.24 (new name)
+except ImportError:  # pragma: no cover - older installs
+    import fitz as pymupdf  # type: ignore
 
 from .images import generate_title_card, normalize_and_save, sha256_bytes
 from .normalize import clean_block, normalize_document

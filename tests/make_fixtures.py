@@ -65,7 +65,10 @@ def make_epub(path: Path) -> None:
 
 
 def make_pdf(path: Path) -> None:
-    import pymupdf
+    try:
+        import pymupdf
+    except ImportError:
+        import fitz as pymupdf  # type: ignore
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)  # A4
     page.insert_text((72, 72), "Test Wisdom PDF", fontsize=24)
