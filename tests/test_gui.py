@@ -76,6 +76,24 @@ def test_controller_converts_files(app, tmp_path: Path):
     assert (out / "b" / "b.txt").exists()
 
 
+def test_clear_all_and_clear_finished(app, tmp_path: Path):
+    win = MainWindow()
+    src = tmp_path / "a.epub"
+    make_epub(src)
+    src2 = tmp_path / "b.pdf"
+    make_pdf(src2)
+    win._add_paths([str(src), str(src2)])
+    assert win.model.rowCount() == 2
+    win.model.rows[0]["status"] = "ok"
+    win.clear_btn.click()
+    app.processEvents()
+    assert win.model.rowCount() == 1
+    win.clear_all_btn.click()
+    app.processEvents()
+    assert win.model.rowCount() == 0
+    win.close()
+
+
 def test_controller_pause_resume_cancel(app, tmp_path: Path):
     src = tmp_path / "a.epub"
     make_epub(src)

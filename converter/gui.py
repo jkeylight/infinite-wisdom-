@@ -127,6 +127,15 @@ class QueueModel(QAbstractTableModel):
             self.rows = keep
             self.endResetModel()
 
+    def clear_all(self) -> int:
+        """Remove every row from the queue. Returns number removed."""
+        n = len(self.rows)
+        if n:
+            self.beginResetModel()
+            self.rows = []
+            self.endResetModel()
+        return n
+
     def failed_paths(self) -> list[Path]:
         return [r["src"] for r in self.rows if r["status"] == "failed"]
 
@@ -268,14 +277,19 @@ class MainWindow(QMainWindow):
         self.cancel_btn = QPushButton("✕ Cancel")
         self.retry_btn = QPushButton("↻ Retry Failed")
         self.clear_btn = QPushButton("Clear Finished")
-        for b in (self.pause_btn, self.resume_btn, self.cancel_btn, self.retry_btn, self.clear_btn):
+        self.clear_all_btn = QPushButton("🗑 Clear All")
+        self.clear_log_btn = QPushButton("Clear Log")
+        for b in (self.pause_btn, self.resume_btn, self.cancel_btn, self.retry_btn):
             b.setEnabled(False)
+        # Clear buttons stay enabled (they no-op safely on empty queue / while running)
         ctrl.addWidget(self.start_btn)
         ctrl.addWidget(self.pause_btn)
         ctrl.addWidget(self.resume_btn)
         ctrl.addWidget(self.cancel_btn)
         ctrl.addWidget(self.retry_btn)
         ctrl.addWidget(self.clear_btn)
+        ctrl.addWidget(self.clear_all_btn)
+        ctrl.addWidget(self.clear_log_btn)
         ctrl.addStretch()
         root.addLayout(ctrl)
 
@@ -330,6 +344,8 @@ class MainWindow(QMainWindow):
         self.cancel_btn.clicked.connect(self.controller.cancel)
         self.retry_btn.clicked.connect(self._retry_failed)
         self.clear_btn.clicked.connect(self.model.clear_finished)
+        self.clear_all_btn.clicked.connect(self._clear_all)
+        self.clear_log_btn.clicked.connect(self._clear_log)
         self.controller.file_finished.connect(self._on_file_finished)
         self.controller.file_started.connect(lambda row: self.model.set_status(row, "running"))
         self.controller.progress.connect(self._on_progress)
@@ -402,6 +418,20 @@ class MainWindow(QMainWindow):
         if failed:
             self._log(f"Re-queueing {len(failed)} failed file(s).")
             self._start()
+
+    def _clear_all(self) -> None:
+        if self.controller.state in ("running", "paused"):
+            self._log("Cannot clear while converting — Cancel first.")
+            return
+        n = self.model.clear_all()
+        self.progress.setRange(0, 0)
+        self.progress.setValue(0)
+        self.stats_label.setText("Queue cleared. Drop files/folders to begin.")
+        self._log(f"Cleared {n} file(s) from queue.")
+
+    def _clear_log(self) -> None:
+        self._log_buffer.clear()
+        self.log_edit.clear()
 
     def _on_file_finished(self, row: int, result) -> None:
         self.model.update_row(row, result)
