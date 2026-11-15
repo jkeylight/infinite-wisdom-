@@ -306,7 +306,7 @@ class MainWindow(QMainWindow):
         titles.addWidget(sub)
         header.addLayout(titles)
         header.addStretch()
-        badge = QLabel("  v1.1.1  ·  WINDOWS PERSONAL  ")
+        badge = QLabel("  v1.1.2  ·  WINDOWS PERSONAL  ")
         badge.setObjectName("badge")
         header.addWidget(badge)
         root.addLayout(header)
@@ -794,6 +794,10 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
+    # Required for frozen (PyInstaller) multiprocessing on Windows:
+    # without this, each worker re-executes __main__ and opens a new window.
+    import multiprocessing
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     app.setApplicationName("Infinite Wisdom Converter")
     win = MainWindow()

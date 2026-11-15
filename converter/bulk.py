@@ -4,6 +4,7 @@ Top-level worker function is picklable for multiprocessing.
 """
 from __future__ import annotations
 
+import multiprocessing
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -156,7 +157,9 @@ def run_bulk(
             if progress_cb:
                 progress_cb(done, total, r)
     else:
-        with ProcessPoolExecutor(max_workers=workers) as ex:
+        # spawn (not fork): safe with Qt in parent + frozen exe on Windows
+        ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
             futures = {ex.submit(_worker, t): t for t in tasks}
             for fut in as_completed(futures):
                 try:

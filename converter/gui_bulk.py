@@ -5,6 +5,7 @@ Never blocks the GUI. Pause stops submitting new files; in-flight files finish.
 """
 from __future__ import annotations
 
+import multiprocessing
 import threading
 import time
 from collections import deque
@@ -13,13 +14,15 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from .bulk import _is_already_converted, output_dir_for
-from .engine import ConvertOptions, ConvertResult, convert_file
+from .bulk import _is_already_converted, _worker, output_dir_for
+from .engine import ConvertOptions, ConvertResult
 
-
-def _worker(task: tuple[str, str, dict]) -> ConvertResult:
-    src_s, out_s, opts = task
-    return convert_file(Path(src_s), Path(out_s), ConvertOptions(**opts))
+# NOTE: _worker is imported from bulk.py (Qt-free) on purpose.
+# On Windows, ProcessPool workers spawn a fresh process that imports the
+# worker's module. If that module imported PySide6/Qt, the child could
+# initialise Qt / open a window and crash the pool. bulk.py imports only
+# engine/epub/pdf (no Qt), so workers stay headless and safe.
+# freeze_support() in run_gui.py / gui.main() handles the frozen-exe case.
 
 
 class BulkController(QObject):
@@ -108,7 +111,8 @@ class BulkController(QObject):
         workers = max(1, workers)
         futures: dict = {}
         try:
-            with ProcessPoolExecutor(max_workers=workers) as ex:
+            ctx = multiprocessing.get_context("spawn")
+            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
                 while pending or futures:
                     if self._cancel_event.is_set():
                         for f in futures:
