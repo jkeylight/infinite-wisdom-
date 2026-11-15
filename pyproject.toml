@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infinite-wisdom-converter"
+version = "0.1.0"
+description = "Windows-only personal EPUB+PDF to TXT bulk converter with cover/diagram sidecar"
+requires-python = ">=3.11"
+dependencies = [
+    "PyMuPDF>=1.24",
+    "lxml>=5.0",
+    "Pillow>=10.0",
+]
+
+[project.scripts]
+converter-cli = "converter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["converter*"]

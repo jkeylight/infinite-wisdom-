@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+*.spec
+.pytest_cache/
+sample_books/output/
+sample_books/Converted/
+*.log
+.DS_Store
+Thumbs.db
