@@ -1,9 +1,13 @@
 # EPUB + PDF → TXT Converter — Robust Desktop App
 ## Plan Mode Only — No Code Yet
 
-**Goal:** Build a robust desktop converter that turns EPUB and PDF books into clean TXT files for your ebook reader, **including book cover extraction and images/diagrams handling** — even though TXT itself cannot store images.
+**Goal:** Build a robust **Windows-only, personal-use** desktop converter that turns EPUB and PDF books into clean TXT files for your ebook reader, **including book cover extraction and images/diagrams handling** — even though TXT itself cannot store images.
 
-**Repo:** `infinite-wisdom-` (connected, currently empty — this plan is the first commit)
+**Top 2 requirements (locked):**
+1. **Bulk file converter** — drop a whole folder, convert hundreds of books unattended
+2. **High-speed conversion, no lag** — GUI never freezes, maximum throughput on your PC
+
+**Repo:** `infinite-wisdom-` (connected)
 
 ---
 
@@ -78,32 +82,43 @@ MyBook/
 
 ---
 
-## 3. Tech Stack
+## 3. Tech Stack — Windows Only, Personal Use
 
 | Layer | Choice | Why |
 |---|---|---|
 | Language | **Python 3.11+** | Best EPUB/PDF parsing ecosystem, easy multiprocessing |
-| GUI | **PySide6 (Qt)** | Mature, cross-platform, drag-drop, progress UI |
-| EPUB parsing | `zipfile` + `lxml` directly | `ebooklib` is thinly maintained — use it as wrapper, bypass when it fails |
-| PDF parsing | **PyMuPDF (`fitz`)** primary, `pdfplumber` fallback, `pypdf` for probing | Fast, gives text + bounding boxes + font info |
-| OCR (optional) | `pytesseract` + bundled Tesseract | For scanned PDFs |
-| Packaging | PyInstaller (one-folder) | Bundle Tesseract + 2-3 languages only (size control) |
-| Worker model | One child process per file | A bad file never kills the GUI |
+| GUI | **PySide6 (Qt)** | Mature, drag-drop, progress UI. Windows-only build — no cross-platform QA needed |
+| EPUB parsing | `zipfile` + `lxml` directly | `ebooklib` is thinly maintained — use it as wrapper, bypass when it fails. **lxml is C-fast; never use BeautifulSoup (10-50× slower)** |
+| PDF parsing | **PyMuPDF (`fitz`)** primary, `pdfplumber` fallback only on failure | PyMuPDF is the fastest Python PDF lib (C core). pdfplumber is slow — fallback only, never default |
+| OCR (optional) | `pytesseract` + bundled Tesseract | For scanned PDFs. **OFF by default** — OCR is 20-100× slower than text extraction |
+| Packaging | **PyInstaller one-folder** (NOT one-file) | One-file unpacks on every launch = slow startup + AV false positives. One-folder = instant launch, portable, just copy the folder |
+| Worker model | **ProcessPoolExecutor, N workers = CPU cores** | True parallelism (Python GIL blocks threads). GUI process never does parsing |
+| Signing / installer | **None needed** | Personal use: no code signing, no notarization, no auto-update, no installer. Just a portable folder + `.exe` |
 
-**Rejected:** Electron (weak PDF text extraction), Tauri/Rust (rebuild all parsing logic), .NET (weaker OCR/layout tooling).
+**Personal-use simplifications (big win):**
+- No Apple Developer account, no Microsoft signing cert, no store submission
+- No auto-update system — you rebuild when you want
+- Config stored locally (`config.json` next to exe), no telemetry, no accounts
+- Can use absolute Windows paths, registry-free portable design
+- Windows Defender SmartScreen warning is acceptable for personal use (or sign later if you share it)
+
+**Rejected:** Electron (weak PDF text extraction, heavy), Tauri/Rust (rebuild all parsing logic), .NET (weaker OCR/layout tooling).
 
 ---
 
-## 4. Converter Architecture
+## 4. Converter Architecture — Built for Bulk + No Lag
 
 ```
 ┌──────────────── GUI (PySide6) ────────────────┐
-│ Drop zone · file queue · options · progress   │
+│ Drop zone · bulk queue · options · progress   │
+│  ↑ UI updates throttled to 10/sec — never lag │
 └──────────────┬────────────────────────────────┘
-               │ job specs
+               │ job specs (queue, not direct calls)
        ┌───────▼────────┐
-       │  Job Manager   │ queue, cancel, retry, isolation
+       │  Job Manager   │ queue, pause/resume, cancel,
+       │                │ skip-converted, retry, ETA
        └───────┬────────┘
+               │ ProcessPoolExecutor (workers = CPU cores)
                │ one file per worker process (timeout + memory cap)
   ┌────────────▼─────────────┐   ┌──────────────────────────┐
   │  EPUB pipeline           │   │  PDF pipeline            │
@@ -118,7 +133,94 @@ MyBook/
                     └────────────────────┘
 ```
 
-**Key principle:** GUI never touches parsing code directly. Each conversion runs in an isolated child process with timeout (e.g. 5 min/file) and memory ceiling. This single decision buys most of your robustness.
+**Key principles for no lag:**
+1. **GUI never touches parsing code.** All conversion in child processes. GUI thread only draws.
+2. **UI updates throttled:** progress/log refresh max 10×/sec, batched. Never update UI per-page/per-line.
+3. **One bad file never blocks the queue** — it fails alone, next file starts immediately.
+4. **Streaming, not loading:** PDFs processed page-by-page, EPUB spine item-by-item. Never hold a whole 10k-page book in RAM.
+
+---
+
+## 4A. Bulk Converter Design (Requirement #1)
+
+### Input handling
+- **Drag-drop files AND folders** onto the window. Folders scanned recursively (`*.epub`, `*.pdf`).
+- **Add Files / Add Folder** buttons. Dedupe by absolute path + file hash (same file added twice = once).
+- **Output layout options:**
+  - Mirror source folder structure (recommended for bulk: `Books/Author/Book/` → `Converted/Author/Book/`)
+  - Flat output folder (all books in one place)
+  - Same folder as source (next to original)
+- **Skip already converted:** If `content.txt` exists and is newer than source, skip (with "Force re-convert" override). Essential for re-running a 500-book folder.
+
+### Queue controls
+- **Start / Pause / Resume / Cancel All / Remove selected / Clear finished**
+- **Per-file actions:** retry, open output folder, remove from queue
+- **Parallel workers slider:** 1 → CPU cores (default: cores-1, leave 1 core for Windows + GUI so PC stays responsive)
+- **Priority:** failed files can be retried without re-queueing everything
+
+### Bulk reporting
+- Live counters: `142 / 500 done · 3 failed · 12 skipped · ETA 04:32`
+- Speed stats: files/min, pages/sec, MB/sec — so you can see it's fast
+- Final summary report: converted / failed (with reason) / skipped, exportable as `.log` / `.csv`
+- Failed files listed with one-click "Retry failed only"
+
+### CLI twin (for bulk scripting)
+Same engine, headless:
+```
+converter-cli  C:\Books\  C:\Converted\  --workers 8 --skip-existing --preset clean-novel
+```
+Useful for scheduled bulk runs or PowerShell automation. GUI and CLI share 100% of conversion code.
+
+---
+
+## 4B. High-Speed / No-Lag Design (Requirement #2)
+
+### Where speed comes from (in order of impact)
+1. **True parallelism:** `ProcessPoolExecutor` with N = CPU cores. 8-core PC ≈ 6-8× single-file speed on bulk. Threads would be blocked by Python GIL — **never use threads for parsing.**
+2. **Fastest libraries only:**
+   - PDF: PyMuPDF (`fitz`) — C core, ~10× faster than pdfplumber/pypdf for text extraction
+   - EPUB: `lxml` (C) — never BeautifulSoup (pure Python, slow)
+   - Images: Pillow (C), WebP encode only when needed
+3. **OCR OFF by default:** Text extraction = milliseconds/page. OCR = seconds/page. Only OCR pages that are actually image-only, and only when user enables it.
+4. **Streaming + low memory:** Page-by-page PDF, spine-item-by-spine-item EPUB. A 5,000-page PDF never sits fully in RAM. Prevents swapping/lag.
+5. **Avoid waste:**
+   - Skip decorative/tiny images early (cheap check before expensive render)
+   - Dedupe images by hash before writing
+   - Downscale images once, not repeatedly
+   - Hash source file once for cover cache — don't re-render covers on re-run
+6. **Fast startup:** PyInstaller **one-folder** (not one-file). One-file unpacks ~50-100 MB on every launch = visible lag. One-folder launches instantly.
+7. **GUI stays responsive:**
+   - All work in workers; GUI thread only draws
+   - Throttle UI refresh to 10/sec; batch log lines
+   - Virtualized file list (only render visible rows) — 1,000 files in queue must not lag scrolling
+   - Leave 1 CPU core free by default (workers = cores-1) so Windows + GUI never starve
+
+### Speed targets (benchmark these in tests)
+| File type | Target (typical PC) |
+|---|---|
+| EPUB, 500 KB, 300 pages | < 1 sec |
+| PDF, 500 pages, text layer | < 5 sec |
+| PDF, 500 pages + figures | < 15 sec |
+| Bulk: 100 EPUBs | < 2 min |
+| Bulk: 100 PDFs (500 pp each) | < 10 min |
+| Scanned PDF + OCR, 100 pages | < 2 min (OCR is inherently slow — this is expected) |
+
+### Speed settings (user-facing)
+- **Workers:** slider 1–cores (default cores-1)
+- **Preset: Fast / Balanced / Best quality**
+  - Fast: no OCR, skip figure rendering, max image 1200px, no dedupe hash (or fast hash)
+  - Balanced (default): figures on, 1600px, dedupe on
+  - Best: OCR fallback on, 200-300 DPI figure render, full normalization
+- **"Convert text only" toggle:** skips all image extraction — fastest possible mode for novels
+
+### What NOT to do (lag traps)
+- ❌ BeautifulSoup for EPUB parsing
+- ❌ pdfplumber as default PDF extractor
+- ❌ Threads for parsing (GIL)
+- ❌ Loading whole PDF/EPUB into memory
+- ❌ Updating progress bar per page (throttle it)
+- ❌ PyInstaller one-file builds
+- ❌ OCR on every page "just in case"
 
 ---
 
@@ -128,7 +230,7 @@ MyBook/
 2. **Parse OPF:** Read `<manifest>` + `<spine>` → **spine order is reading order** (not file order — this is where naive converters fail).
 3. **Encryption check:** `META-INF/encryption.xml` → if DRM/obfuscated, report clearly, don't produce garbage.
 4. **Per spine item (XHTML):**
-   - Parse with `lxml` in recover mode (tolerate broken markup)
+   - Parse with `lxml` in recover mode (tolerate broken markup) — **fast path, no BeautifulSoup**
    - Walk DOM in document order:
      - `h1-h6` → heading (blank line before/after)
      - `p, div` → paragraph break
@@ -153,10 +255,10 @@ MyBook/
    - Text page (enough characters) → extract
    - Image-only page (near-zero text) → mark for OCR
    - Mixed → extract text + OCR image region if enabled
-3. **Extraction (PyMuPDF):** Get blocks with bounding boxes + font info
+3. **Extraction (PyMuPDF):** Get blocks with bounding boxes + font info — **fast path**
 4. **Reading order:** Sort top-to-bottom, left-to-right. For multi-column: cluster by x-ranges, read column-by-column (XY-cut / histogram of block x-centers)
 5. **Header/footer removal:** Lines repeated at same y-position across ≥N pages (page numbers, running heads) → drop. This alone massively improves quality.
-6. **OCR path (optional toggle):** Rasterize at 300 DPI → Tesseract (`--psm` tuned per layout). Cache by page hash.
+6. **OCR path (optional toggle, OFF by default):** Rasterize at 300 DPI → Tesseract (`--psm` tuned per layout). Cache by page hash.
 7. **Line assembly:** Join wrapped lines into paragraphs (new paragraph on blank gap, indent, or terminal punctuation). Remove soft hyphens: `exam-\nple` → `example`
 8. **Page boundaries:** Configurable — continuous flow (default), form feed, or `--- page N ---`
 9. **Fallbacks:** PyMuPDF garbage (CID fonts/mojibake) → retry with `pdfplumber` → if both fail, log page, OCR if enabled. **One bad page never aborts the document.**
@@ -248,15 +350,17 @@ Figure 1.2 — Diagram of the water cycle
 
 ---
 
-## 10. GUI Design
+## 10. GUI Design — Bulk-First, No-Lag
 
-- **Main window:** Drop zone, file list (name, type, size, status, message), Add Files/Folder, Remove, Convert, Cancel
-- **Options (per-job defaults + per-file override):** output folder, chapter separators, OCR on/off + language, encoding, line endings, metadata header, keep footnotes/TOC, page markers
-- **Progress:** Per-file bar + overall, ETA, live log pane
+- **Main window:** Drop zone (files + folders), bulk file list (name, type, size, status, message, speed), Add Files/Folder, Remove, Convert, Pause, Cancel
+- **Queue controls:** Start/Pause/Resume/Cancel All, Retry Failed Only, Clear Finished, workers slider (1–cores, default cores-1)
+- **Options (per-job defaults):** output folder + layout (mirror/flat/same), chapter separators, OCR on/off + language, encoding, line endings, metadata header, keep footnotes/TOC, page markers, **Fast/Balanced/Best preset**, **Text-only (no images) toggle**
+- **Progress:** Per-file bar + overall `142/500`, ETA, files/min + pages/sec, live log pane (throttled)
 - **Preview:** Side-by-side "first 2 KB of source vs output" before committing a large batch
-- **Presets:** "Clean novel", "Academic paper", "Scanned book (OCR)"
+- **Presets:** "Fast bulk", "Clean novel", "Academic paper", "Scanned book (OCR)"
 - **Errors:** Non-modal report, "open log", "retry with fallback"
-- **CLI twin:** Same engine — `converter-cli in/ out/ --ocr --preset clean-novel` (essential for testing + power users)
+- **CLI twin:** Same engine — `converter-cli C:\Books\ C:\Converted\ --workers 8 --skip-existing`
+- **Performance rules:** virtualized list (1,000 rows scroll smoothly), UI refresh ≤10/sec, GUI thread never parses
 
 ---
 
@@ -268,35 +372,39 @@ Figure 1.2 — Diagram of the water cycle
 - [ ] Unicode decode fallback chain; log chosen encoding
 - [ ] Handle: zero-byte files, wrong extensions, zip bombs (size limits), 10k-page PDFs (stream page-by-page, don't hold all text in RAM)
 - [ ] Encrypted/DRM → clear message, no crash
-- [ ] Cancel mid-batch leaves completed files valid
+- [ ] Cancel/pause mid-batch leaves completed files valid; resume continues queue
 - [ ] Crash reporting (local log file), no telemetry by default
 - [ ] One bad page/file never aborts the document — collect errors per page, continue
+- [ ] **No-lag:** GUI responsive during 500-file bulk run; workers leave 1 core free; UI throttled
 
 ---
 
-## 12. Testing Strategy
+## 12. Testing Strategy — Windows Only
 
 - **Corpus (~50 fixtures):** clean EPUB2/EPUB3, fixed-layout EPUB, broken OPF, DRM sample, single-column PDF, two-column paper, scanned book, RTL, CJK, math-heavy, malformed PDF, 0-byte file
-- **Golden-file tests:** expected `.txt` + `book.json` per fixture, diffed in CI
+- **Golden-file tests:** expected `.txt` + `book.json` per fixture, diffed in CI (Windows runner)
 - **Fuzz:** random truncation/corruption → assert "no crash, error reported"
 - **Property tests:** output always valid UTF-8; line endings respected; no control chars; every marker in TXT has a matching asset in JSON
-- **Manual QA matrix:** Windows 10/11, macOS (arm64 + x86), Ubuntu
+- **Benchmark tests:** assert speed targets in §4B on a reference PC; fail CI if regression >20%
+- **Bulk stress test:** 500-file folder, assert GUI stays responsive (UI thread heartbeat < 100ms), all files processed, pause/resume works
+- **Manual QA:** Windows 10 + Windows 11 only (personal use — no macOS/Linux matrix)
 
 ---
 
-## 13. Milestones
+## 13. Milestones — Windows Personal Build
 
 | Milestone | Deliverable | Est. |
 |---|---|---|
 | **M0** | CLI only: EPUB spine→text + single-column PDF→text, normalization, golden tests on 10 fixtures | 3–4 days |
 | **M1** | Multi-column PDF, header/footer removal, dehyphenation, per-page error collection | 1 wk |
-| **M2** | OCR path, encryption handling, process isolation, timeouts | 1 wk |
+| **M2** | **Bulk engine:** ProcessPoolExecutor, folder recursive scan, skip-existing, pause/resume, speed stats, benchmark tests | 1 wk |
 | **M3** | `book.json` schema frozen; EPUB cover chain + inline images (extract, SVG rasterize, dedupe, markers, captions) | 1 wk |
 | **M4** | Reader: inline image widgets, lazy load, tap-to-zoom, missing-asset fallback, cover thumbnails | 1 wk |
 | **M5** | PDF figure extraction via clip-render; caption heuristic; PDF cover = page-1 render | 1 wk |
-| **M6** | PySide6 GUI: queue, options, progress, preview, cancel, presets | 1–2 wk |
-| **M7** | Packaging, signing, installers, docs, full corpus CI | 3–4 days |
-| **M8** | Polish: storage budget/downscaling, CLI parity, crash logs, performance tuning | ongoing |
+| **M6** | PySide6 GUI: bulk queue, drop folders, workers slider, progress, preview, presets, virtualized list | 1–2 wk |
+| **M7** | **Windows packaging:** PyInstaller one-folder portable build, `config.json`, README, full corpus + bulk stress CI | 3–4 days |
+| **M8** | Polish: Fast/Balanced/Best presets, text-only mode, crash logs, speed tuning | ongoing |
+| ~~M-OCR~~ | OCR path (optional plugin, OFF by default) | add when needed |
 
 ---
 
@@ -305,54 +413,57 @@ Figure 1.2 — Diagram of the water cycle
 | Risk | Mitigation |
 |---|---|
 | PDF reading order is biggest quality risk | Start with XY-cut; add "preview & manual column hint" escape hatch |
-| OCR adds ~100 MB (Tesseract) | Optional build variant `--with-ocr` |
+| OCR adds ~100 MB + slowness | Optional plugin, OFF by default; never block bulk on OCR |
 | `ebooklib` thinly maintained | Wrap it; keep direct zip+OPF fallback |
 | Scope creep toward layout fidelity | Freeze v1 on plain-text fidelity only |
 | SVG with external refs (fonts/images) | Rasterize with refs inlined, else placeholder |
 | Fixed-layout / comic EPUBs | Detect + warn "text conversion not meaningful" — out of scope v1 |
 | CMYK / 16-bit images break readers | Convert to sRGB 8-bit on import |
+| **GUI lag on large bulk queues** | ProcessPool + throttled UI + virtualized list + workers=cores-1 |
+| **Slow parsing libs (BeautifulSoup/pdfplumber)** | lxml + PyMuPDF only on fast path; slow libs fallback-only |
 
 ---
 
-## 15. Decisions — Locked (My Calls)
+## 15. Decisions — Locked
 
 ### 1. Single-file vs sidecar? → **SIDECAR. Locked.**
-`content.txt` + `book.json` + `assets/`. No debate.
-- Single-file markers (`[[img:...]]` in TXT) pollute the text, break in external editors, and make offsets fragile.
-- Sidecar keeps TXT pure/exportable and gives your reader full fidelity. JSON is authoritative; TXT markers are decorative only.
-- **Rule:** If a user copies just the `.txt` somewhere, it still reads perfectly. If they copy the whole folder, images work.
+`content.txt` + `book.json` + `assets/`. TXT stays pure/exportable; JSON is authoritative.
 
-### 2. OCR in v1 or later? → **LATER, as optional plugin. Not a v1 blocker.**
-- Ship v1 **without** OCR. Core EPUB + text-PDF conversion is 80% of real-world use.
-- OCR adds ~100 MB (Tesseract), language packs, slow processing, and a whole QA surface.
-- Design the pipeline so OCR is a drop-in page handler from day one (M2), but don't let it block M0/M1.
-- Build variants: `converter` (light, no OCR) and `converter-ocr` (full). Same engine, one flag.
+### 2. OCR in v1 or later? → **LATER, optional plugin. OFF by default.**
+Ship v1 without OCR. Design pipeline so OCR drops in later. Build variants: light (no OCR) / full.
 
-### 3. Target OS first? → **Windows first, macOS second, Linux third.**
-- Windows = largest desktop ebook audience in India + globally, cheapest to test/sign.
-- PySide6 code is cross-platform from the start — you pay almost nothing to keep macOS/Linux working.
-- Packaging order: Windows installer (M7) → macOS signed/notarized build → Linux AppImage/deb. Don't pay for Apple Developer signing until you have users asking for macOS.
+### 3. Target OS? → **WINDOWS ONLY, personal use. Locked.**
+- No macOS/Linux builds, no code signing, no notarization, no auto-update, no installer.
+- Deliverable = PyInstaller **one-folder** portable build: copy folder, double-click exe, done.
+- QA only on Windows 10/11. This removes ~30% of packaging/QA work.
 
 ### 4. Reader stack? → **Converter in Python; reader format is stack-agnostic.**
-- Build the converter in **Python + PySide6** (best parsing libs, one language for converter + desktop reader if you go desktop).
-- But design `book.json` as plain JSON with character offsets — **any** reader (Python/Qt, Electron, Flutter, web, Android) can consume it. Don't couple the format to Qt.
-- If your reader is already built in another stack, don't rewrite it — just implement the JSON + offset loader (it's ~100 lines in any language).
-- **Call:** Don't let reader stack dictate converter stack. Converter = Python. Reader = whatever you already have.
+Converter = Python + PySide6. `book.json` = plain JSON + offsets, consumable by any reader stack.
 
 ### 5. Cover for TXT imports? → **BOTH: auto-generate + manual override.**
-- Auto-generate a title card (title + author, colored background) on import so the shelf is never empty.
-- Always allow "Edit cover" → upload/replace. User override wins over generated.
-- Same rule for EPUB/PDF fallback: generated placeholder is last resort, never a dead end.
+Auto title card on import; "Edit cover" always available.
+
+### 6. Bulk converter? → **BULK-FIRST. Locked.**
+- Drag-drop folders, recursive scan, mirror/flat output, skip-existing, pause/resume, retry-failed-only.
+- Queue must handle 500+ files without lag (virtualized list, throttled UI).
+- CLI twin for scripted bulk runs.
+
+### 7. High speed / no lag? → **SPEED IS A FEATURE. Locked.**
+- ProcessPoolExecutor (workers = cores-1), PyMuPDF + lxml fast path only, OCR off by default, streaming page-by-page, one-folder build for instant startup.
+- Fast/Balanced/Best presets + Text-only toggle.
+- Benchmark tests in CI; speed targets in §4B.
 
 ### Summary table
 | # | Decision | Call |
 |---|---|---|
 | 1 | Format | Sidecar (`txt + json + assets/`) |
-| 2 | OCR | Optional plugin, M2 — not v1 blocker |
-| 3 | OS order | Windows → macOS → Linux |
+| 2 | OCR | Optional plugin, OFF by default |
+| 3 | OS | **Windows only, personal use** — portable one-folder, no signing |
 | 4 | Stack | Converter: Python/PySide6. Format: stack-agnostic JSON |
 | 5 | TXT covers | Auto-generate + manual override |
+| 6 | Bulk | **Bulk-first:** folder drop, recursive, skip-existing, pause/resume |
+| 7 | Speed | **ProcessPool + PyMuPDF/lxml, workers=cores-1, throttled UI, one-folder build** |
 
 ---
 
-*Plan mode only — no implementation code yet. Next step on your go-ahead: scaffold M0 CLI + fixture corpus.*
+*Plan mode only — no implementation code yet. Next step on your go-ahead: scaffold M0 CLI + bulk engine (M0+M2 combined for speed-first build).*
