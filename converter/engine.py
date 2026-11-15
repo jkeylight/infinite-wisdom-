@@ -31,6 +31,7 @@ class ConvertOptions:
     max_image_side: int = 1600
     figure_dpi: int = 200
     include_header: bool = True  # prepend Title/Author header to the TXT
+    flat_txt_dir: str = ""  # if set, also copy <BookName>.txt to this folder (flat quick access)
 
     def __post_init__(self):
         if self.preset == "fast":
@@ -50,6 +51,7 @@ class ConvertResult:
     source: str
     output_dir: str = ""
     txt_path: str = ""
+    flat_txt_path: str = ""
     json_path: str = ""
     title: str = ""
     images: int = 0
@@ -156,6 +158,23 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
         json_path = out_book_dir / "book.json"
         _atomic_write_text(txt_path, full_text)
 
+        # Flat TXT copy: also place <BookName>.txt directly in the output
+        # root for quick access (sidecar folder remains for the reader).
+        flat_txt_path = ""
+        if options.flat_txt_dir:
+            try:
+                flat_dir = Path(options.flat_txt_dir)
+                flat_dir.mkdir(parents=True, exist_ok=True)
+                flat_path = flat_dir / txt_name
+                # Atomic-ish copy via temp + replace
+                import shutil
+                tmp_flat = flat_dir / (txt_name + ".tmp")
+                shutil.copyfile(txt_path, tmp_flat)
+                tmp_flat.replace(flat_path)
+                flat_txt_path = str(flat_path)
+            except Exception:
+                pass  # flat copy is best-effort, never fail the conversion
+
         book_json = {
             "title": result["title"],
             "author": result["author"],
@@ -174,6 +193,7 @@ def convert_file(src: Path, out_book_dir: Path, options: ConvertOptions) -> Conv
             source=str(src),
             output_dir=str(out_book_dir),
             txt_path=str(txt_path),
+            flat_txt_path=flat_txt_path,
             json_path=str(json_path),
             title=result["title"],
             images=len(result["assets"]),

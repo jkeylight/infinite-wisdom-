@@ -81,6 +81,18 @@ def test_marker_offset_accounts_for_header(tmp_path: Path):
         assert "[[img:" in snippet or txt[m["offset"] - 5:m["offset"] + 20].find("[[img:") >= 0, snippet
 
 
+def test_flat_txt_copy(tmp_path: Path):
+    src = tmp_path / "book.epub"
+    make_epub(src)
+    out = tmp_path / "out" / "book"
+    flat_root = tmp_path / "flat"
+    result = convert_file(src, out, ConvertOptions(flat_txt_dir=str(flat_root)))
+    assert result.status == "ok", result.error
+    assert result.flat_txt_path == str(flat_root / "book.txt")
+    assert (flat_root / "book.txt").exists()
+    assert (flat_root / "book.txt").read_text(encoding="utf-8") == (out / "book.txt").read_text(encoding="utf-8")
+
+
 def test_unsupported_type(tmp_path: Path):
     src = tmp_path / "book.docx"
     src.write_text("hi")

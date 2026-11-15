@@ -32,20 +32,22 @@ Chapter One
 ```
 Disable with CLI `--no-header` (GUI: header is always on in v1.0.1).
 
-## Quick start
+## Quick start (Windows — double-click, no commands)
 
+| File | What it does |
+|---|---|
+| **`run.bat`** | Auto-runs the GUI. Uses built `Converter.exe` if present, else Python (auto-installs deps on first run) |
+| **`auto-convert.bat`** | Auto-converts without GUI: `Books\` (or `sample_books\`) → `Converted\`. Pass a folder: `auto-convert.bat C:\MyBooks` |
+| **`build.bat`** | Builds portable `dist\Converter\Converter.exe` + CLI (one-folder, no signing) |
+
+**From source (any OS):**
 ```bash
 pip install -r requirements.txt
-
-# Generate sample books to try
-python -m tests.make_fixtures sample_books
+python -m tests.make_fixtures sample_books   # sample books to try
+python -m converter.gui                      # GUI
 ```
 
-**GUI (recommended for bulk):**
-```bash
-python -m converter.gui
-```
-Drop files/folders, pick output + preset, hit Start. Pause/Resume/Cancel, workers slider, double-click a row to preview output.
+**GUI (recommended for bulk):** drop files/folders, pick output + preset, hit Start. Pause/Resume/Cancel, workers slider, double-click a row to preview output. Tick *"Also copy TXT to output root (flat)"* for flat `<BookName>.txt` copies next to the sidecar folders.
 
 **CLI (same engine, bulk-first):**
 ```bash
@@ -64,6 +66,7 @@ CLI options:
 - `--preset fast|balanced|best` — fast: 1200px/150dpi · balanced: 1600px/200dpi · best: 1600px/300dpi
 - `--text-only` — skip all image extraction (fastest mode)
 - `--layout mirror|flat|same` — mirror preserves folder structure (recommended for bulk)
+- `--flat-txt` — also copy `<BookName>.txt` directly into the output root (flat quick access; sidecar folders remain for the reader)
 - `--ocr` — **out of scope for v1** (kept as a flag for compatibility; scanned pages are skipped with a warning)
 
 ## Speed design
@@ -126,7 +129,7 @@ pip install pytest
 QT_QPA_PLATFORM=offscreen python -m pytest tests/ -v   # offscreen needed only on headless Linux; Windows needs no env var
 ```
 
-21 tests: normalize, EPUB/PDF conversion (+ header, marker offsets), bulk + skip-existing, GUI model + controller (convert, pause/resume/cancel), config persistence.
+22 tests: normalize, EPUB/PDF conversion (+ header, marker offsets, flat TXT), bulk + skip-existing, GUI model + controller (convert, pause/resume/cancel), config persistence.
 
 ## Status
 

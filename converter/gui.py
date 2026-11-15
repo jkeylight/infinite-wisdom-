@@ -175,6 +175,7 @@ class MainWindow(QMainWindow):
             pass
         self.text_only_chk.setChecked(bool(cfg.get("text_only")))
         self.skip_chk.setChecked(bool(cfg.get("skip_existing", True)))
+        self.flat_chk.setChecked(bool(cfg.get("flat_txt")))
 
     def _collect_config(self) -> dict:
         return {
@@ -184,6 +185,7 @@ class MainWindow(QMainWindow):
             "workers": self.workers_slider.value(),
             "text_only": self.text_only_chk.isChecked(),
             "skip_existing": self.skip_chk.isChecked(),
+            "flat_txt": self.flat_chk.isChecked(),
         }
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
@@ -244,6 +246,8 @@ class MainWindow(QMainWindow):
         self.skip_chk = QCheckBox("Skip already converted")
         self.skip_chk.setChecked(True)
         row2.addWidget(self.skip_chk)
+        self.flat_chk = QCheckBox("Also copy TXT to output root (flat)")
+        row2.addWidget(self.flat_chk)
         row2.addStretch()
         root.addLayout(row2)
 
@@ -383,7 +387,8 @@ class MainWindow(QMainWindow):
             self._log("Nothing queued (all done/skipped). Use Retry Failed or Clear + re-add.")
             return
         options = ConvertOptions(preset=self.preset_combo.currentText(),
-                                 text_only=self.text_only_chk.isChecked())
+                                 text_only=self.text_only_chk.isChecked(),
+                                 flat_txt_dir=str(output_root) if self.flat_chk.isChecked() else "")
         save_config(self._collect_config())  # persist on Start too (crash-safe)
         self.progress.setRange(0, len(tasks))
         self.progress.setValue(0)

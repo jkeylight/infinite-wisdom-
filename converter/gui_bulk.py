@@ -91,7 +91,7 @@ class BulkController(QObject):
     def _run(self, tasks, options: ConvertOptions, workers: int, skip_existing: bool) -> None:
         opts_dict = {"preset": options.preset, "text_only": options.text_only, "ocr": options.ocr,
                      "max_image_side": options.max_image_side, "figure_dpi": options.figure_dpi,
-                     "include_header": options.include_header}
+                     "include_header": options.include_header, "flat_txt_dir": options.flat_txt_dir}
         pending: deque = deque()
         skipped = 0
         for row, src, out_dir in tasks:

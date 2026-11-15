@@ -18,6 +18,7 @@ DEFAULTS = {
     "workers": 0,  # 0 = auto (cores - 1)
     "text_only": False,
     "skip_existing": True,
+    "flat_txt": False,
 }
 
 
