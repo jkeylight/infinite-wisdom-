@@ -1,6 +1,7 @@
 """PDF pipeline: probe -> per-page extract (PyMuPDF fast path) -> normalize.
 
-Streaming page-by-page. OCR is a stub (OFF by default) — see PLAN M-OCR.
+Streaming page-by-page. OCR is out of scope for v1 (user decision) —
+scanned pages are skipped with a warning.
 """
 from __future__ import annotations
 
@@ -141,10 +142,7 @@ def convert_pdf(
 
             if page_text_len < MIN_TEXT_CHARS:
                 scanned_pages += 1
-                if ocr:
-                    warnings.append(f"Page {pno+1}: scanned image — OCR not bundled in this build, skipped")
-                else:
-                    warnings.append(f"Page {pno+1}: scanned image — no text layer, skipped (enable OCR in full build)")
+                warnings.append(f"Page {pno+1}: scanned image — no text layer, skipped (OCR out of scope for v1)")
                 all_blocks.append(f"[Page {pno+1}: scanned image]")
                 continue
 

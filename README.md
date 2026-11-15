@@ -51,13 +51,13 @@ CLI options:
 - `--preset fast|balanced|best` — fast: 1200px/150dpi · balanced: 1600px/200dpi · best: 1600px/300dpi
 - `--text-only` — skip all image extraction (fastest mode)
 - `--layout mirror|flat|same` — mirror preserves folder structure (recommended for bulk)
-- `--ocr` — scanned-page OCR (not bundled in this build; warns and skips)
+- `--ocr` — **out of scope for v1** (kept as a flag for compatibility; scanned pages are skipped with a warning)
 
 ## Speed design
 
 - **ProcessPoolExecutor** — true parallelism (threads would be blocked by Python GIL)
 - **PyMuPDF + lxml** fast path only — never BeautifulSoup/pdfplumber by default
-- **OCR off by default** — text extraction is ms/page, OCR is sec/page
+- **No OCR (by decision)** — text extraction is ms/page, OCR is sec/page + ~100 MB. Scanned PDFs are skipped with a clear warning instead of slowing bulk.
 - **Streaming page-by-page** — a 5,000-page PDF never sits fully in RAM
 - **GUI never parses** — all work in `BulkController` thread + workers; log/stats throttled via QTimer (200ms/500ms); queue table is virtualized (`QTableView` renders visible rows only, 1,000 rows scroll smoothly)
 - **Pause** stops submitting new files; in-flight files finish cleanly. Cancel leaves completed files valid.
@@ -123,11 +123,11 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ -v   # offscreen needed only o
 - ✅ M5 PDF: cover = page-1 render, figure extraction via clip-render
 - ✅ M6 GUI: PySide6 bulk queue — drop folders, workers slider, Start/Pause/Resume/Cancel, Retry Failed, preview, throttled log/stats
 - ✅ M7 Windows packaging: `build.bat` one-folder portable (GUI + CLI), `version_info.txt` exe metadata, `config.json` persistence, built binaries smoke-tested
-- ⏳ M-OCR: Tesseract plugin (optional, off by default)
+- ❌ OCR: **out of scope by decision** (user call) — scanned PDFs skipped with warning; keeps bulk fast + build light
 
 ## Known limitations (v1)
 
-- Scanned PDFs without a text layer are skipped with a warning (OCR plugin later)
+- Scanned PDFs without a text layer are skipped with a warning (OCR out of scope — see above)
 - Fixed-layout / comic EPUBs: detected, text conversion not meaningful
 - PDF reading order: single/two-column heuristic (XY-cut lite); complex magazine layouts may need manual column hint (future)
 - DRM/encrypted files: clear error, no crash

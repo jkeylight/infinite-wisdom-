@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Fast: 1200px/150dpi. Balanced: 1600px/200dpi. Best: 1600px/300dpi.")
     p.add_argument("--text-only", action="store_true", help="Fastest mode: skip all image extraction.")
     p.add_argument("--ocr", action="store_true",
-                   help="Enable OCR for scanned pages (not bundled in this build — warns and skips).")
+                   help="Out of scope for v1 (kept for compatibility; scanned pages are skipped with a warning).")
     p.add_argument("--skip-existing", action="store_true", default=True,
                    help="Skip files already converted and newer than source (default: on).")
     p.add_argument("--no-skip-existing", dest="skip_existing", action="store_false",

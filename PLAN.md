@@ -404,7 +404,7 @@ Figure 1.2 — Diagram of the water cycle
 | **M6** | PySide6 GUI: bulk queue, drop folders, workers slider, progress, preview, presets, virtualized list | 1–2 wk |
 | **M7** | **Windows packaging:** PyInstaller one-folder portable build, `config.json`, README, full corpus + bulk stress CI | 3–4 days |
 | **M8** | Polish: Fast/Balanced/Best presets, text-only mode, crash logs, speed tuning | ongoing |
-| ~~M-OCR~~ | OCR path (optional plugin, OFF by default) | add when needed |
+| ~~M-OCR~~ | **OUT OF SCOPE (user decision)** — no OCR in v1; scanned PDFs skipped with warning | — |
 
 ---
 
@@ -413,7 +413,7 @@ Figure 1.2 — Diagram of the water cycle
 | Risk | Mitigation |
 |---|---|
 | PDF reading order is biggest quality risk | Start with XY-cut; add "preview & manual column hint" escape hatch |
-| OCR adds ~100 MB + slowness | Optional plugin, OFF by default; never block bulk on OCR |
+| OCR adds ~100 MB + slowness | **Out of scope** — never block bulk on OCR; scanned pages skipped with warning |
 | `ebooklib` thinly maintained | Wrap it; keep direct zip+OPF fallback |
 | Scope creep toward layout fidelity | Freeze v1 on plain-text fidelity only |
 | SVG with external refs (fonts/images) | Rasterize with refs inlined, else placeholder |
@@ -429,8 +429,8 @@ Figure 1.2 — Diagram of the water cycle
 ### 1. Single-file vs sidecar? → **SIDECAR. Locked.**
 `content.txt` + `book.json` + `assets/`. TXT stays pure/exportable; JSON is authoritative.
 
-### 2. OCR in v1 or later? → **LATER, optional plugin. OFF by default.**
-Ship v1 without OCR. Design pipeline so OCR drops in later. Build variants: light (no OCR) / full.
+### 2. OCR in v1 or later? → **OUT OF SCOPE. User decision: no OCR.**
+Ship v1 without OCR, permanently for this personal build. Scanned PDFs are skipped with a clear warning. Keeps bulk fast and build light (~30 MB, no Tesseract).
 
 ### 3. Target OS? → **WINDOWS ONLY, personal use. Locked.**
 - No macOS/Linux builds, no code signing, no notarization, no auto-update, no installer.
@@ -457,7 +457,7 @@ Auto title card on import; "Edit cover" always available.
 | # | Decision | Call |
 |---|---|---|
 | 1 | Format | Sidecar (`txt + json + assets/`) |
-| 2 | OCR | Optional plugin, OFF by default |
+| 2 | OCR | **Out of scope** (user decision) |
 | 3 | OS | **Windows only, personal use** — portable one-folder, no signing |
 | 4 | Stack | Converter: Python/PySide6. Format: stack-agnostic JSON |
 | 5 | TXT covers | Auto-generate + manual override |
@@ -466,4 +466,4 @@ Auto title card on import; "Edit cover" always available.
 
 ---
 
-*Plan mode only — no implementation code yet. Next step on your go-ahead: scaffold M0 CLI + bulk engine (M0+M2 combined for speed-first build).*
+*v1.0.0 complete: M0–M7 built and tested (19 tests). OCR out of scope by user decision. Next: real-book testing on Windows.*
