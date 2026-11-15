@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .bulk import output_dir_for, scan_inputs
+from .config import load_config, save_config
 from .engine import ConvertOptions
 from .gui_bulk import BulkController
 
@@ -144,7 +145,7 @@ class QueueModel(QAbstractTableModel):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, config: dict | None = None):
         super().__init__()
         self.setWindowTitle("Infinite Wisdom — EPUB/PDF → TXT Converter")
         self.resize(1100, 700)
@@ -152,9 +153,42 @@ class MainWindow(QMainWindow):
         self.controller = BulkController(self)
         self._log_buffer: list[str] = []
         self._input_roots: list[Path] = []
+        self._config = config if config is not None else load_config()
         self._build_ui()
         self._connect()
         self._apply_theme()
+        self._apply_config()
+
+    def _apply_config(self) -> None:
+        cfg = self._config
+        if cfg.get("output_folder"):
+            self.output_edit.setText(str(cfg["output_folder"]))
+        if cfg.get("layout") in ("mirror", "flat", "same"):
+            self.layout_combo.setCurrentText(cfg["layout"])
+        if cfg.get("preset") in ("fast", "balanced", "best"):
+            self.preset_combo.setCurrentText(cfg["preset"])
+        try:
+            w = int(cfg.get("workers") or 0)
+            if w:
+                self.workers_slider.setValue(max(1, min(w, self.workers_slider.maximum())))
+        except Exception:
+            pass
+        self.text_only_chk.setChecked(bool(cfg.get("text_only")))
+        self.skip_chk.setChecked(bool(cfg.get("skip_existing", True)))
+
+    def _collect_config(self) -> dict:
+        return {
+            "output_folder": self.output_edit.text(),
+            "layout": self.layout_combo.currentText(),
+            "preset": self.preset_combo.currentText(),
+            "workers": self.workers_slider.value(),
+            "text_only": self.text_only_chk.isChecked(),
+            "skip_existing": self.skip_chk.isChecked(),
+        }
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        save_config(self._collect_config())
+        super().closeEvent(event)
 
     # ---------- UI ----------
     def _build_ui(self):
@@ -350,6 +384,7 @@ class MainWindow(QMainWindow):
             return
         options = ConvertOptions(preset=self.preset_combo.currentText(),
                                  text_only=self.text_only_chk.isChecked())
+        save_config(self._collect_config())  # persist on Start too (crash-safe)
         self.progress.setRange(0, len(tasks))
         self.progress.setValue(0)
         self._log(f"Starting {len(tasks)} file(s), workers={self.workers_slider.value()}, "

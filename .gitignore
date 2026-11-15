@@ -10,5 +10,7 @@ dist/
 sample_books/output/
 sample_books/Converted/
 *.log
+config.json
+Converted/
 .DS_Store
 Thumbs.db

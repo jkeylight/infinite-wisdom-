@@ -66,19 +66,22 @@ Targets: EPUB <1s · 500-page PDF <5s · 100 EPUBs <2min · 20 books in 1.0s wal
 
 ## Windows portable build (personal use, no signing)
 
-```powershell
-pip install pyinstaller
-# GUI build (one-folder = instant startup, no unpack lag)
-pyinstaller --noconfirm --windowed --name Converter `
-  --collect-all pymupdf --collect-all lxml --collect-all PySide6 `
-  -p . converter/gui.py
-# Output: dist\Converter\Converter.exe — copy the folder anywhere, double-click to run.
+**Easiest:** double-click **`build.bat`** on Windows (Python 3.11+ required). It installs deps + PyInstaller, then builds both:
 
-# CLI-only build (smaller, no Qt):
-pyinstaller --noconfirm --console --name converter-cli `
-  --collect-all pymupdf --collect-all lxml `
-  -p . converter/__main__.py
 ```
+dist\Converter\Converter.exe          ← GUI, double-click to run (one-folder, instant startup)
+dist\converter-cli\converter-cli.exe ← CLI twin
+```
+
+Copy the `dist\Converter` folder anywhere — it is portable. Settings persist to `config.json` next to the exe (output folder, layout, preset, workers, text-only, skip-existing). No registry, no signing, no installer.
+
+Manual equivalent:
+```powershell
+pip install -r requirements.txt pyinstaller
+pyinstaller --noconfirm --windowed --name Converter --collect-all pymupdf --collect-all lxml --collect-all PySide6 --version-file version_info.txt -p . run_gui.py
+pyinstaller --noconfirm --console --name converter-cli --collect-all pymupdf --collect-all lxml -p . run_cli.py
+```
+> Entry points are `run_gui.py` / `run_cli.py` (not `converter/gui.py`) — PyInstaller freezes them as top-level scripts, so relative imports inside the `converter` package work correctly. Verified: built binaries smoke-tested (CLI converts, GUI opens).
 
 ## Project layout
 
@@ -93,9 +96,12 @@ converter/
   pdf.py        — PyMuPDF page-by-page, header/footer removal, figure clip-render
   images.py     — dedupe, downscale, WebP normalize, title-card cover
   normalize.py  — NFKC, ligatures, dehyphenation, blank-line collapse
+  config.py     — config.json persistence (portable, next to exe)
+run_gui.py / run_cli.py — PyInstaller entry points
+build.bat / build.sh / version_info.txt — Windows portable build
 tests/
   make_fixtures.py — synthetic EPUB/PDF generator
-  test_normalize.py / test_convert.py / test_bulk.py / test_gui.py
+  test_normalize.py / test_convert.py / test_bulk.py / test_gui.py / test_config.py
 docs/
   gui.png       — GUI screenshot
 ```
@@ -107,7 +113,7 @@ pip install pytest
 QT_QPA_PLATFORM=offscreen python -m pytest tests/ -v   # offscreen needed only on headless Linux; Windows needs no env var
 ```
 
-15 tests: normalize, EPUB/PDF conversion, bulk + skip-existing, GUI model + controller (convert, pause/resume/cancel).
+19 tests: normalize, EPUB/PDF conversion, bulk + skip-existing, GUI model + controller (convert, pause/resume/cancel), config persistence.
 
 ## Status
 
@@ -116,7 +122,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ -v   # offscreen needed only o
 - ✅ M3 Sidecar: `book.json` frozen, EPUB cover chain + inline images, SVG→PNG, dedupe, captions
 - ✅ M5 PDF: cover = page-1 render, figure extraction via clip-render
 - ✅ M6 GUI: PySide6 bulk queue — drop folders, workers slider, Start/Pause/Resume/Cancel, Retry Failed, preview, throttled log/stats
-- ⏳ M7 Windows packaging: PyInstaller one-folder portable build (commands above)
+- ✅ M7 Windows packaging: `build.bat` one-folder portable (GUI + CLI), `version_info.txt` exe metadata, `config.json` persistence, built binaries smoke-tested
 - ⏳ M-OCR: Tesseract plugin (optional, off by default)
 
 ## Known limitations (v1)
